@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "helpay"
+description = "A coupon marketplace where shoppers buy verified brand coupons through UPI and sellers upload valid coupons, track sales, and claim their earnings."
+version = "1.0.0"
+id = "artifacts/helpay"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20159
+
+[services.development]
+run = "pnpm --filter @workspace/helpay run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/helpay", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/helpay/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20159"
+BASE_PATH = "/"

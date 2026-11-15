@@ -1,0 +1,627 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: coupons
+    description: Approved-brand coupons and pricing
+  - name: marketplace
+    description: Purchases, earnings, and payout requests
+  - name: webinar
+    description: InclusionWorks event details and attendee registrations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /webinar:
+    get:
+      operationId: getWebinar
+      tags: [webinar]
+      summary: Get the InclusionWorks webinar details and reservation count
+      responses:
+        "200":
+          description: Webinar details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebinarDetails"
+  /webinar/me:
+    get:
+      operationId: getMyWebinarRegistration
+      tags: [webinar]
+      summary: Get the signed-in attendee's registration status
+      responses:
+        "200":
+          description: Current attendee registration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebinarRegistrationState"
+        "401":
+          description: Sign-in required
+    post:
+      operationId: reserveWebinarSeat
+      tags: [webinar]
+      summary: Reserve or reactivate the signed-in attendee's seat
+      responses:
+        "200":
+          description: Current seat reservation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebinarRegistrationState"
+        "401":
+          description: Sign-in required
+    delete:
+      operationId: cancelWebinarReservation
+      tags: [webinar]
+      summary: Cancel the signed-in attendee's reservation
+      responses:
+        "200":
+          description: Updated attendee registration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebinarRegistrationState"
+        "401":
+          description: Sign-in required
+  /brands:
+    get:
+      operationId: getBrands
+      tags: [coupons]
+      summary: List approved brands
+      responses:
+        "200":
+          description: Approved brands
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Brand"
+  /pricing:
+    get:
+      operationId: getCouponPricing
+      tags: [coupons]
+      summary: Get coupon price and commission rules
+      responses:
+        "200":
+          description: Price rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PricingRule"
+  /coupons:
+    get:
+      operationId: getCoupons
+      tags: [coupons]
+      summary: Browse available coupons
+      parameters:
+        - name: brand
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Available coupons
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CouponListing"
+    post:
+      operationId: createCoupon
+      tags: [coupons]
+      summary: Upload a coupon for an approved brand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CouponInput"
+      responses:
+        "201":
+          description: Coupon created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CouponListing"
+        "400":
+          description: Invalid coupon details or pricing category
+  /seller/coupons:
+    get:
+      operationId: getSellerCoupons
+      tags: [coupons]
+      summary: List the signed-in seller's coupons
+      responses:
+        "200":
+          description: Seller's coupons
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SellerCoupon"
+        "401":
+          description: Sign-in required
+  /seller/summary:
+    get:
+      operationId: getSellerSummary
+      tags: [marketplace]
+      summary: Get earnings and sales summary
+      responses:
+        "200":
+          description: Seller summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SellerSummary"
+        "401":
+          description: Sign-in required
+  /transactions:
+    get:
+      operationId: getTransactions
+      tags: [marketplace]
+      summary: List the signed-in user's purchases and sales
+      responses:
+        "200":
+          description: Transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Transaction"
+        "401":
+          description: Sign-in required
+  /payout-requests:
+    get:
+      operationId: getPayoutRequests
+      tags: [marketplace]
+      summary: List the signed-in seller's payout requests
+      responses:
+        "200":
+          description: Seller payout requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PayoutRequest"
+        "401":
+          description: Sign-in required
+    post:
+      operationId: createPayoutRequest
+      tags: [marketplace]
+      summary: Request payout of available seller earnings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PayoutRequestInput"
+      responses:
+        "201":
+          description: Payout request created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayoutRequest"
+        "400":
+          description: No earnings are available to claim
+        "401":
+          description: Sign-in required
+  /admin/purchases:
+    get:
+      operationId: getAdminPurchases
+      tags: [marketplace]
+      summary: List pending payment references for authorized reviewers
+      responses:
+        "200":
+          description: Payment review queue
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminPurchase"
+        "401":
+          description: Sign-in required
+        "403":
+          description: Reviewer access required
+  /admin/purchases/{id}:
+    patch:
+      operationId: reviewPurchase
+      tags: [marketplace]
+      summary: Approve or reject a pending coupon payment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseReviewInput"
+      responses:
+        "200":
+          description: Payment review saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminPurchase"
+        "400":
+          description: Review action is invalid
+        "401":
+          description: Sign-in required
+        "403":
+          description: Reviewer access required
+        "404":
+          description: Purchase not found
+  /admin/payout-requests:
+    get:
+      operationId: getAdminPayoutRequests
+      tags: [marketplace]
+      summary: List payout requests for authorized reviewers
+      responses:
+        "200":
+          description: Payout review queue
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminPayoutRequest"
+        "401":
+          description: Sign-in required
+        "403":
+          description: Reviewer access required
+  /admin/payout-requests/{id}:
+    patch:
+      operationId: reviewPayoutRequest
+      tags: [marketplace]
+      summary: Mark a payout as paid or rejected
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PayoutReviewInput"
+      responses:
+        "200":
+          description: Payout review saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminPayoutRequest"
+        "400":
+          description: Review action is invalid
+        "401":
+          description: Sign-in required
+        "403":
+          description: Reviewer access required
+        "404":
+          description: Payout request not found
+  /purchases:
+    post:
+      operationId: createPurchase
+      tags: [marketplace]
+      summary: Submit a coupon purchase with UPI payment reference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseInput"
+      responses:
+        "201":
+          description: Purchase submitted for payment review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "400":
+          description: Invalid purchase or coupon unavailable
+        "401":
+          description: Sign-in required
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    WebinarDetails:
+      type: object
+      properties:
+        slug:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        startsAt:
+          type: string
+          format: date-time
+        timezone:
+          type: string
+        durationMinutes:
+          type: integer
+        isFree:
+          type: boolean
+        hostName:
+          type: string
+        hostRole:
+          type: string
+        reservedCount:
+          type: integer
+      required: [slug, title, description, startsAt, timezone, durationMinutes, isFree, hostName, hostRole, reservedCount]
+    WebinarRegistrationState:
+      type: object
+      properties:
+        registered:
+          type: boolean
+        registrationId:
+          type: ["integer", "null"]
+        status:
+          type: ["string", "null"]
+          enum: [registered, cancelled, null]
+        updatedAt:
+          type: ["string", "null"]
+          format: date-time
+      required: [registered, registrationId, status, updatedAt]
+    Brand:
+      type: object
+      properties:
+        name:
+          type: string
+        category:
+          type: string
+      required: [name, category]
+    PricingRule:
+      type: object
+      properties:
+        basis:
+          type: string
+          enum: [discount, worth]
+        label:
+          type: string
+        minValue:
+          type: integer
+        maxValue:
+          type: integer
+        salePrice:
+          type: integer
+        commission:
+          type: integer
+        sellerEarnings:
+          type: integer
+      required: [basis, label, minValue, maxValue, salePrice, commission, sellerEarnings]
+    CouponListing:
+      type: object
+      properties:
+        id:
+          type: integer
+        brand:
+          type: string
+        category:
+          type: string
+        title:
+          type: string
+        discountPercent:
+          type: ["integer", "null"]
+        couponValue:
+          type: ["integer", "null"]
+        expiryDate:
+          type: string
+          format: date
+        salePrice:
+          type: integer
+        commission:
+          type: integer
+        sellerEarnings:
+          type: integer
+        status:
+          type: string
+      required: [id, brand, category, title, expiryDate, salePrice, commission, sellerEarnings, status]
+    SellerCoupon:
+      allOf:
+        - $ref: "#/components/schemas/CouponListing"
+        - type: object
+          properties:
+            code:
+              type: string
+            paymentStatus:
+              type: ["string", "null"]
+          required: [code]
+    CouponInput:
+      type: object
+      properties:
+        brand:
+          type: string
+        category:
+          type: string
+          enum: [discount, worth]
+        title:
+          type: string
+          minLength: 3
+          maxLength: 100
+        code:
+          type: string
+          minLength: 3
+          maxLength: 120
+        discountPercent:
+          type: ["integer", "null"]
+        couponValue:
+          type: ["integer", "null"]
+        expiryDate:
+          type: string
+          format: date
+      required: [brand, category, title, code, expiryDate]
+    PurchaseInput:
+      type: object
+      properties:
+        couponId:
+          type: integer
+        paymentReference:
+          type: string
+          minLength: 6
+          maxLength: 40
+      required: [couponId, paymentReference]
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: integer
+        couponId:
+          type: integer
+        title:
+          type: string
+        brand:
+          type: string
+        amount:
+          type: integer
+        sellerEarnings:
+          type: integer
+        commission:
+          type: integer
+        status:
+          type: string
+          enum: [pending, verified, rejected, payout_requested, paid]
+        direction:
+          type: string
+          enum: [purchase, sale]
+        paymentReference:
+          type: ["string", "null"]
+        couponCode:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, couponId, title, brand, amount, sellerEarnings, commission, status, direction, createdAt]
+    SellerSummary:
+      type: object
+      properties:
+        totalEarned:
+          type: integer
+        availableToClaim:
+          type: integer
+        pendingPayments:
+          type: integer
+        couponsSold:
+          type: integer
+      required: [totalEarned, availableToClaim, pendingPayments, couponsSold]
+    PayoutRequest:
+      type: object
+      properties:
+        id:
+          type: integer
+        amount:
+          type: integer
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, amount, status, createdAt]
+    PayoutRequestInput:
+      type: object
+      properties:
+        upiId:
+          type: string
+          minLength: 4
+          maxLength: 80
+      required: [upiId]
+    PurchaseReviewInput:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [verified, rejected]
+      required: [status]
+    PayoutReviewInput:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [paid, rejected]
+      required: [status]
+    AdminPurchase:
+      type: object
+      properties:
+        id:
+          type: integer
+        couponId:
+          type: integer
+        brand:
+          type: string
+        title:
+          type: string
+        paymentReference:
+          type: string
+        amount:
+          type: integer
+        sellerEarnings:
+          type: integer
+        commission:
+          type: integer
+        status:
+          type: string
+          enum: [pending, verified, rejected]
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, couponId, brand, title, paymentReference, amount, sellerEarnings, commission, status, createdAt]
+    AdminPayoutRequest:
+      type: object
+      properties:
+        id:
+          type: integer
+        sellerId:
+          type: string
+        upiId:
+          type: string
+        amount:
+          type: integer
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, sellerId, upiId, amount, status, createdAt]
+
