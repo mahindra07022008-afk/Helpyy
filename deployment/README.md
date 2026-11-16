@@ -36,7 +36,7 @@ Limits to know: verification is manual, so codes are not instant; refunds are se
 
 ## Required authentication follow-up
 
-In the helpay-v2 Supabase project, Authentication > URL Configuration, set Site URL to the live URL above and add `<live URL>/**` to Redirect URLs (sign-up confirmation returns to `/dashboard`, password reset returns to `/reset-password`). Repeat for a custom domain when one is attached. Dashboard sign-in is required; the connected tools do not expose this setting. Keep email confirmation enabled. Verify one real sign-up, email delivery, confirmation link, then sign-in. Social providers are not configured; this deployment uses email/password. Existing Replit/Clerk accounts are not migrated.
+In the helpay-v2 Supabase project, Authentication > URL Configuration, set Site URL to the live URL above and add `<live URL>/**` to Redirect URLs (sign-up confirmation returns to `/dashboard`, password reset returns to `/reset-password`). Repeat for a custom domain when one is attached. Dashboard sign-in is required; the connected tools do not expose this setting. Keep email confirmation enabled. Verify one real sign-up, email delivery, confirmation link, then sign-in. Google and Facebook buttons are built in and appear on the sign-in and sign-up pages automatically once that provider is enabled under Authentication > Sign In / Providers (each needs its own client ID and secret from Google Cloud Console / Meta for Developers, with `https://eekdolrrhnkzkecoiobb.supabase.co/auth/v1/callback` as the authorised redirect URI). Until then only email/password is shown. Existing Replit/Clerk accounts are not migrated.
 
 ## Operational limits
 

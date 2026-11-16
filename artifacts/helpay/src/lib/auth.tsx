@@ -33,8 +33,43 @@ export async function apiPost<T>(path: string): Promise<T> {
   return body as T;
 }
 const cardStyle = {width:'100%',maxWidth:440,padding:32,background:'#fffdf8',borderRadius:24,boxShadow:'0 12px 40px #253b3212'} as const;
+const socialProviders = [
+  { id: 'google', label: 'Google', icon: <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.7-.4-3.9z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.7-.4-3.9z"/></svg> },
+  { id: 'facebook', label: 'Facebook', icon: <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="#1877F2" d="M24 12a12 12 0 1 0-13.9 11.9v-8.4H7.1V12h3V9.4c0-3 1.8-4.7 4.500-4.700 1.300 0 2.700.2 2.700.2v2.900h-1.500c-1.500 0-1.900.9-1.900 1.900V12h3.300l-.5 3.500h-2.800v8.400A12 12 0 0 0 24 12z"/></svg> },
+] as const;
+/**
+ * Google and Facebook buttons. Each one appears only while that provider is
+ * switched on in the Supabase project, so visitors never meet a dead button.
+ */
+function SocialButtons({signup,onError}:{signup:boolean;onError:(message:string)=>void}) {
+  const [enabled,setEnabled]=useState<Record<string,boolean>>({});
+  const [busy,setBusy]=useState('');
+  useEffect(()=>{
+    let active=true;
+    fetch(`${import.meta.env.VITE_SUPABASE_URL}/auth/v1/settings`,{headers:{apikey:import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}})
+      .then(res=>res.ok?res.json():null).then(settings=>{if(active&&settings?.external) setEnabled(settings.external);}).catch(()=>{});
+    return ()=>{active=false;};
+  },[]);
+  const available=socialProviders.filter(p=>enabled[p.id]);
+  if(!available.length) return null;
+  async function start(provider:'google'|'facebook'){
+    setBusy(provider);
+    try{
+      const {error}=await supabase.auth.signInWithOAuth({provider,options:{redirectTo:appUrl('/sign-in')}});
+      if(error){onError(error.message);setBusy('');}
+    }catch{onError('Unable to connect. Please try again.');setBusy('');}
+  }
+  return <div style={{display:'grid',gap:10,marginTop:18}}>
+    <p className="form-help" style={{textAlign:'center',margin:0}}>or</p>
+    {available.map(p=><button key={p.id} type="button" className="btn btn-quiet full-width" style={{justifyContent:'center'}} disabled={!!busy} onClick={()=>void start(p.id)} data-testid={`button-oauth-${p.id}`}>{p.icon} {busy===p.id?'Opening…':`${signup?'Sign up':'Continue'} with ${p.label}`}</button>)}
+  </div>;
+}
 function AuthForm({signup=false}:{signup?:boolean}) {
-  const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
+  const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[busy,setBusy]=useState(false);
+  // A failed Google/Facebook sign-in comes back here with the reason in the URL.
+  const [message,setMessage]=useState(()=>new URLSearchParams(window.location.search).get('error_description')??new URLSearchParams(window.location.hash.slice(1)).get('error_description')??'');
+  const {session}=useContext(Context);
+  useEffect(()=>{if(session) window.location.replace(appUrl('/dashboard'));},[session]);
   async function submit(e:FormEvent){
     e.preventDefault();setBusy(true);setMessage('');
     try {
@@ -51,6 +86,7 @@ function AuthForm({signup=false}:{signup?:boolean}) {
     {signup?<p className="form-help">Use at least 8 characters. Confirm your email before signing in.</p>:<p className="form-help"><a className="text-link" href={`${basePath}/reset-password`} data-testid="link-forgot-password">Forgot your password?</a></p>}
     {message&&<p role="status" className="form-help">{message}</p>}
     <button className="btn btn-primary full-width" disabled={busy} style={{marginTop:20}}>{busy?'Please wait…':signup?'Create account':'Sign in'}</button>
+    <SocialButtons signup={signup} onError={setMessage}/>
     <p style={{marginTop:20}}>{signup?'Already have an account?':'New to helpay?'} <a className="text-link" href={`${basePath}${signup?'/sign-in':'/sign-up'}`}>{signup?'Sign in':'Create account'}</a></p>
   </form>;
 }
