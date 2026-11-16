@@ -19,7 +19,20 @@ If the asset-upload step returns 401 because a proxy or CI system rewrites the `
 
 Do not use the root generic build command for Cloudflare: it also builds unrelated original workspace artifacts. The deployed application uses `build:production`.
 
-Database migrations live in `deployment/migrations/` and are applied in order with the Supabase SQL editor (or the Management API). `001_initial_schema.sql` is already applied to helpay-v2; do not reapply it. `002_withdraw_listing.sql` (seller can withdraw their own listing) is additive, idempotent, and must be applied **before** deploying a Worker that includes the withdraw endpoint; until it is, Withdraw returns an error and nothing else is affected. Its rollback statements are at the bottom of the file. Existing tables and data were not replaced. Coupon codes are in a separate RLS-protected table; public listings never include codes. Prices are enforced in the database. New payments, payouts, and payment approvals are always denied. Zero dashboard earnings reflect the absence of a payment ledger in this deployment; no transactions are simulated or migrated.
+Database migrations live in `deployment/migrations/` and are applied in order with the Supabase SQL editor (or the Management API). `001_initial_schema.sql` is already applied to helpay-v2; do not reapply it. `002_withdraw_listing.sql` (seller can withdraw their own listing) is additive, idempotent, and must be applied **before** deploying a Worker that includes the withdraw endpoint; until it is, Withdraw returns an error and nothing else is affected. Its rollback statements are at the bottom of the file. Existing tables and data were not replaced. Coupon codes are in a separate RLS-protected table; public listings never include codes. Prices are enforced in the database.
+
+## Payments (manual UPI, no gateway)
+
+Set `UPI_ID` at deploy time to switch payments on; without it every payment and payout request is refused. The flow is the original one:
+
+1. The buyer pays the listed price to the published UPI ID in their own UPI app (approved there with their UPI PIN; the site never sees a PIN or bank details) and submits the transaction reference. The listing is reserved.
+2. A reviewer opens `/admin`, checks in their own UPI/bank app that a payment with that reference and amount really arrived, then marks it verified or rejected. Nothing is treated as paid before that.
+3. Verified: the buyer sees the coupon code under My account and the seller's earnings become claimable. Rejected: the listing returns to the marketplace.
+4. The seller requests a payout to their UPI ID; the reviewer sends the money by UPI and marks the request paid.
+
+Reviewers are the confirmed accounts whose email is in `private.helpyy_admins` (add with `insert into private.helpyy_admins(email) values ('you@example.com');`). All payment rules live in database functions in `003_upi_payments.sql`; the two payment tables have no direct client access. The QR image shown at checkout is `attached_assets/WhatsApp_Image_…jpeg` and must belong to the same UPI ID.
+
+Limits to know: verification is manual, so codes are not instant; refunds are sent by hand from the reviewer's UPI app; a personal UPI ID may be subject to the bank's limits on commercial collections.
 
 ## Required authentication follow-up
 
@@ -27,7 +40,7 @@ In the helpay-v2 Supabase project, Authentication > URL Configuration, set Site 
 
 ## Operational limits
 
-Coupon browse and seller views return the newest 100 matching results. Search (title or brand) and the brand filter run in the database. Real payment and payout setup, custom domains, and existing Replit data/account migration are outside this deployment. No subscription or domain purchase was made.
+Coupon browse and seller views return the newest 100 matching results. Search (title or brand) and the brand filter run in the database. Custom domains and existing Replit data/account migration are outside this deployment. No subscription or domain purchase was made.
 
 ## Backup and rollback
 

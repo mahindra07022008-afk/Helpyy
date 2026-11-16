@@ -53,3 +53,24 @@ test('withdraw is scoped to the signed-in seller and 404s for other rows',async(
   assert.equal((await worker.fetch(new Request('https://test/api/seller/coupons/7/withdraw',{method:'POST',headers:{authorization:'Bearer bad'}}),env)).status,401);
  });
 });
+const pay={...env,UPI_ID:'shop@upi'};
+test('payments switch on only with a valid UPI ID, and still need sign-in',async()=>{
+ assert.deepEqual(await (await worker.fetch(new Request('https://test/api/config'),env)).json(),{paymentsEnabled:false,payoutsEnabled:false,upiId:null});
+ assert.equal((await (await worker.fetch(new Request('https://test/api/config'),{...env,UPI_ID:'not a upi id'})).json()).paymentsEnabled,false);
+ assert.equal((await (await worker.fetch(new Request('https://test/api/config'),pay)).json()).upiId,'shop@upi');
+ for(const [path,method] of [['/api/purchases','POST'],['/api/payout-requests','POST'],['/api/admin/purchases/1','PATCH'],['/api/admin/purchases','GET']])
+  assert.equal((await worker.fetch(new Request('https://test'+path,{method}),pay)).status,401);
+});
+test('purchase input is validated, normalised, and database refusals are passed on',async()=>{
+ const post=(path,data,method='POST')=>worker.fetch(new Request('https://test'+path,{method,headers:{authorization:'Bearer t','content-type':'application/json'},body:JSON.stringify(data)}),pay);
+ await withSupabase((url,init)=>url.includes('/auth/v1/user')?Response.json({id:'user-1'}):url.includes('helpyy_review_purchase')?Response.json({code:'42501',message:'Reviewer access required'},{status:403}):url.includes('helpyy_create_payout')?Response.json({code:'P0001',message:'HELPYY:There are no earnings to claim yet.'},{status:400}):Response.json({id:1,status:'pending'}),async calls=>{
+  assert.equal((await post('/api/purchases',{couponId:1,paymentReference:'12'})).status,400);
+  assert.equal((await post('/api/purchases',{couponId:'1',paymentReference:'123456789012'})).status,400);
+  assert.equal((await post('/api/purchases',{couponId:1,paymentReference:' ab12 3456 7890 '})).status,201);
+  assert.equal(calls.find(c=>c.url.includes('helpyy_create_purchase')).init.body,'{"p_coupon_id":1,"p_reference":"AB1234567890"}');
+  assert.equal((await post('/api/admin/purchases/1',{status:'verified'},'PATCH')).status,403);
+  assert.equal((await post('/api/admin/purchases/1',{status:'paid'},'PATCH')).status,400);
+  assert.equal((await post('/api/payout-requests',{upiId:'nope'})).status,400);
+  const refused=await post('/api/payout-requests',{upiId:'me@bank'});assert.equal(refused.status,409);assert.equal((await refused.json()).error,'There are no earnings to claim yet.');
+ });
+});

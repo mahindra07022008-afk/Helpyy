@@ -16,9 +16,11 @@ for(const rel of fs.readdirSync(root,{recursive:true})){
  const bytes=fs.readFileSync(file),hash=crypto.createHash('sha256').update(bytes).digest('hex').slice(0,32);
  manifest['/'+rel.replaceAll('\\','/')]={hash,size:bytes.length};files[hash]={bytes,ext:path.extname(file)};
 }
-const types={'.js':'application/javascript','.css':'text/css','.html':'text/html; charset=utf-8','.svg':'image/svg+xml','.txt':'text/plain; charset=utf-8'};
+const types={'.js':'application/javascript','.css':'text/css','.html':'text/html; charset=utf-8','.svg':'image/svg+xml','.jpeg':'image/jpeg','.jpg':'image/jpeg','.png':'image/png','.txt':'text/plain; charset=utf-8'};
 const form=new FormData();let metadata;
 const bindings=[{type:'plain_text',name:'SUPABASE_URL',text:supabase},{type:'plain_text',name:'SUPABASE_PUBLISHABLE_KEY',text:key}];
+// Optional: the UPI ID buyers pay. Without it, payments and payouts stay switched off.
+if(process.env.UPI_ID)bindings.push({type:'plain_text',name:'UPI_ID',text:process.env.UPI_ID});
 if(process.env.INLINE_ASSETS==='1'){
  // Bundles the built site into the Worker as data modules, so the whole deploy is
  // one API call. For environments where a proxy owns the Authorization header and
