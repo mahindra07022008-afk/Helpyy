@@ -38,3 +38,42 @@ Live URL: https://helpyy.mahindra07022008.workers.dev/
 - Backup branch: `backup/pre-production-2026-11-15`.
 
 Payments, bank linking, UPI activation and custom domain setup remain deliberately excluded. This is a deployed application with remaining launch checks, not a claim that all production-readiness checks are complete.
+
+## Update — 16 November 2026
+
+Added: password reset (`/reset-password`, linked from sign-in), seller withdraw of own listings (migration 002 + `POST /api/seller/coupons/:id/withdraw`), sellers can see their own codes, database-side search, server validation messages on the listing form, IST-correct minimum expiry date.
+
+Checked locally, against a stand-in for Supabase (not the real database or the live site):
+
+- Production build, typecheck, and 7 Worker tests.
+- 34 browser checks on the built site, desktop and Pixel 7 viewport: home, sign-up, wrong-password error, sign-in, sign-out, session after refresh, protected-route redirects, listing creation and persistence, search, brand filter, empty state, payments-disabled checkout, second account cannot see or withdraw the first account's listings or codes, admin endpoints 401/403, owner withdraw, password change, reset request, 404 and pricing pages, no horizontal overflow on mobile, no uncaught browser errors.
+
+Not verified: everything above on the live URL; migration 002 and its RLS policy on the real database; the PostgREST search filter against real Supabase; real reset and confirmation emails.
+
+Deployed the same day (Worker deployment `d8b9d5ea952d414292f136336a8eee39`, inline-assets mode; previous version `c4fda940-e17a-4aa6-9d9d-ba8f670d5455` is the rollback target).
+
+Checked on the live URL: home, deep links, `/api/healthz` (database connected), `/api/coupons` including a search with hostile characters against the real database, pricing, security headers, Brotli compression; in a browser at desktop and Pixel 7 sizes: home renders without horizontal overflow, `/seller` and `/admin` redirect to sign-in when signed out, forgot-password link opens the reset form, no console errors.
+
+Still not verified live: sign-up, sign-in, sign-out, listing creation, ownership checks and withdraw with real accounts (the test environment could not reach the Supabase project host); reset and confirmation emails. Migration 002 is **not yet applied**, so Withdraw returns an error on the live site until it is.
+
+## Update 2 — 16 November 2026: manual UPI payments enabled
+
+Live Worker deployment `057929e19beb4e00881af33dabb9370d` with `UPI_ID` set. Migration 003 applied to helpay-v2 (plus a follow-up fix to the UPI-ID pattern, already folded into the migration file). Migration 002 (withdraw) is still **not applied**.
+
+- Payment rules, run against the real database inside a transaction that was rolled back (no test data left): cannot buy own listing; malformed and reused references refused; listing reserved while pending; code hidden until verified; only a reviewer can verify or mark paid; seller cannot verify their own sale; no payout before verified earnings; one pending payout at a time; earnings arithmetic; signed-out callers and direct table reads refused.
+- Browser, local stand-in database: checkout shows QR and UPI ID, reference submission, pending state, reviewer page, code release, seller earnings, payout request (14 checks), desktop and Pixel 7.
+- Live URL: config reports payments on, payment and reviewer endpoints return 401 when signed out, QR image served, pages render without console errors.
+
+Not verified: a real UPI payment end to end on the live site with real accounts; reviewer sign-in (the owner account's email is not yet confirmed).
+
+## Update 3 — 16 November 2026: sign-in providers, offer pages, sorting
+
+Live Worker deployment `6dd6a4495c7240089746a16bd945caa5`. Migration 002 is now applied (without its `drop policy if exists` line, which was unnecessary on this database).
+
+Added: Google and Facebook buttons (shown only when the provider is enabled in Supabase), an offer page at `/offer/:id` with a share button, sort (newest, price, expiring soonest) and offer-type filter, an "Expires in N days" note on offers within a week of expiry, real page title and description.
+
+- Withdraw on the real database, rolled back: another user's update touches 0 rows; the owner cannot set any other status or change the price; owner withdraw works once.
+- 10 Worker tests; 64 browser checks across four local suites (stand-in database), desktop and Pixel 7. Found and fixed along the way: the purchase confirmation disappeared when buying from an offer page, and sign-in triggered two navigations.
+- Live URL: sort, type filter and search requests return 200 from the real database; missing offers return 404 and a friendly page; pages render at both sizes with no page errors.
+
+Still not verified live: any flow that needs a signed-in real account (sign-up, listing, purchase, review, payout, withdraw through the UI), Google/Facebook sign-in, and email delivery.

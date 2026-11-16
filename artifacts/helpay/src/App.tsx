@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
-import { ClerkProvider, SignIn, SignUp, useAuth, useClerk, useUser } from './lib/auth';
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ClerkProvider, ResetPassword, SignIn, SignUp, apiPost, useAuth, useClerk, useUser } from './lib/auth';
 import {
   useCreateCoupon, useCreatePayoutRequest, useCreatePurchase, useGetBrands,
   useGetCouponPricing, useGetCoupons, useGetSellerCoupons, useGetSellerSummary,
@@ -12,17 +12,28 @@ import {
   getGetBrandsQueryKey, getGetCouponPricingQueryKey,
   getGetAdminPurchasesQueryKey, getGetAdminPayoutRequestsQueryKey,
 } from '@workspace/api-client-react';
-import type { CouponListing, CouponInput, Transaction, PayoutRequest, AdminPurchase, AdminPayoutRequest } from '@workspace/api-client-react';
-import { Route, Switch, Router as WouterRouter, Link, useLocation } from 'wouter';
+import type { CouponListing, CouponInput, GetCouponsParams, Transaction, PayoutRequest, AdminPurchase, AdminPayoutRequest } from '@workspace/api-client-react';
+import { Route, Switch, Router as WouterRouter, Link, useLocation, useParams } from 'wouter';
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, BadgeCheck, Banknote, Check,
   ChevronDown, CircleAlert, Clock3, CreditCard, Filter, HandCoins,
-  HeartHandshake, LogOut, Menu, Search, ShieldCheck, Sparkles, Tag,
+  HeartHandshake, LogOut, Menu, Search, Share2, ShieldCheck, Sparkles, Tag,
   TicketCheck, Wallet, X,
 } from 'lucide-react';
-
+import qrImage from '@assets/WhatsApp_Image_2026-10-15_at_4.37.00_PM_1792071719211.jpeg';
 
 const queryClient = new QueryClient();
+type SiteConfig = { paymentsEnabled: boolean; payoutsEnabled: boolean; upiId: string | null };
+/** Whether UPI payments are switched on, and which UPI ID buyers pay. Off until the server says otherwise. */
+function useSiteConfig(): SiteConfig {
+  const config = useQuery({ queryKey: ['site-config'], staleTime: 5 * 60_000, queryFn: async (): Promise<SiteConfig> => {
+    const res = await fetch(`${import.meta.env.BASE_URL.replace(/\/$/, '')}/api/config`);
+    if (!res.ok) throw new Error('config');
+    return res.json();
+  } });
+  return config.data ?? { paymentsEnabled: false, payoutsEnabled: false, upiId: null };
+}
+const serverMessage = (error: unknown, fallback: string) => (error as { data?: { error?: string } } | null)?.data?.error ?? fallback;
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 const clerkPubKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
@@ -33,6 +44,9 @@ function stripBase(path: string) {
 
 const money = (value?: number | null) => `₹${(value ?? 0).toLocaleString('en-IN')}`;
 const dateLabel = (date: string) => new Date(date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+/** Whole days from today (IST) until an expiry date; 0 means it expires today. */
+const daysLeft = (date: string) => Math.round((Date.parse(date) - Date.parse(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date()))) / 86_400_000);
+const expiryNote = (date: string) => { const d = daysLeft(date); return d <= 0 ? 'Expires today' : d === 1 ? 'Expires tomorrow' : d <= 7 ? `Expires in ${d} days` : null; };
 const statusLabel: Record<string, string> = {
   pending: 'Pending review', verified: 'Verified', rejected: 'Not approved',
   payout_requested: 'Payout requested', paid: 'Paid',
@@ -76,7 +90,7 @@ function Footer() {
 function BottomNav() {
   const { isSignedIn } = useAuth();
   const [location] = useLocation();
-  if (location.startsWith('/sign-in') || location.startsWith('/sign-up')) return null;
+  if (location.startsWith('/sign-in') || location.startsWith('/sign-up') || location.startsWith('/reset-password')) return null;
   const items = [
     { href: '/pricing', label: 'Pricing', icon: <Banknote size={19}/> },
     { href: isSignedIn ? '/upload' : '/sign-in', label: 'Upload', icon: <Tag size={19}/> },
@@ -121,10 +135,10 @@ function QueryState({ loading, error, retry, children }: { loading: boolean; err
 
 function CouponCard({ coupon, onBuy }: { coupon: CouponListing; onBuy: (coupon: CouponListing) => void }) {
   return <article className="coupon-card coupon-ticket" data-testid={`card-coupon-${coupon.id}`}>
-    <div className="coupon-card-top"><span className="category-pill">{coupon.category === 'discount' ? 'Percentage off' : 'Coupon value'}</span><span className="expiry">Until {dateLabel(coupon.expiryDate)}</span></div>
+    <div className="coupon-card-top"><span className="category-pill">{coupon.category === 'discount' ? 'Percentage off' : 'Coupon value'}</span><span className="expiry" style={expiryNote(coupon.expiryDate) ? { color: 'hsl(var(--accent))', fontWeight: 700 } : undefined}>{expiryNote(coupon.expiryDate) ?? `Until ${dateLabel(coupon.expiryDate)}`}</span></div>
     <div className="brand-avatar">{coupon.brand.slice(0,1).toUpperCase()}</div>
     <p className="coupon-brand">{coupon.brand}</p>
-    <h3>{coupon.title}</h3>
+    <h3><Link href={`/offer/${coupon.id}`} style={{ color: 'inherit', textDecoration: 'none' }} data-testid={`link-offer-${coupon.id}`}>{coupon.title}</Link></h3>
     <div className="offer-value">{coupon.discountPercent ? `${coupon.discountPercent}%` : money(coupon.couponValue)} <span>{coupon.discountPercent ? 'off' : 'voucher value'}</span></div>
     <div className="coupon-bottom"><div><small>One-time price</small><strong>{money(coupon.salePrice)}</strong></div><button className="btn btn-accent" onClick={() => onBuy(coupon)} data-testid={`button-buy-${coupon.id}`}>Get this offer <ArrowRight size={15}/></button></div>
     <div className="fee-note"><ShieldCheck size={14}/> Coupon code shared after payment review</div>
@@ -134,36 +148,19 @@ function CouponCard({ coupon, onBuy }: { coupon: CouponListing; onBuy: (coupon: 
 function Marketplace({ publicMode = false }: { publicMode?: boolean }) {
   const [search, setSearch] = useState('');
   const [brandFilter, setBrandFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [sort, setSort] = useState('');
   const [activeCoupon, setActiveCoupon] = useState<CouponListing | null>(null);
-  const [showCheckout, setShowCheckout] = useState(false);
-  const [purchaseDone, setPurchaseDone] = useState(false);
-  const [reference, setReference] = useState('');
   const { isSignedIn } = useAuth();
+  const config = useSiteConfig();
   const [, setLocation] = useLocation();
-  const params = useMemo(() => ({ ...(search.trim() ? { search: search.trim() } : {}), ...(brandFilter ? { brand: brandFilter } : {}) }), [search, brandFilter]);
+  const params = useMemo(() => ({ ...(search.trim() ? { search: search.trim() } : {}), ...(brandFilter ? { brand: brandFilter } : {}), ...(typeFilter ? { category: typeFilter } : {}), ...(sort ? { sort } : {}) }) as GetCouponsParams, [search, brandFilter, typeFilter, sort]);
   const coupons = useGetCoupons(params, { query: { queryKey: getGetCouponsQueryKey(params) } });
   const brands = useGetBrands({ query: { queryKey: getGetBrandsQueryKey() } });
-  const createPurchase = useCreatePurchase();
-  const qc = useQueryClient();
 
   const beginPurchase = (coupon: CouponListing) => {
     if (!isSignedIn) { setLocation('/sign-in'); return; }
-    setActiveCoupon(coupon); setShowCheckout(true); setPurchaseDone(false); setReference('');
-  };
-  const submitPurchase = (e: FormEvent) => {
-    e.preventDefault();
-    if (!activeCoupon || reference.trim().length < 6) return;
-    createPurchase.mutate({ data: { couponId: activeCoupon.id, paymentReference: reference.trim() } }, {
-      onSuccess: async () => {
-        await Promise.all([
-          qc.invalidateQueries({ queryKey: getGetCouponsQueryKey() }),
-          qc.invalidateQueries({ queryKey: getGetTransactionsQueryKey() }),
-          qc.invalidateQueries({ queryKey: getGetSellerSummaryQueryKey() }),
-          qc.invalidateQueries({ queryKey: getGetSellerCouponsQueryKey() }),
-        ]);
-        setPurchaseDone(true);
-      },
-    });
+    setActiveCoupon(coupon);
   };
   return <div className="site-shell">
     <SiteHeader compact={!publicMode}/>
@@ -184,27 +181,102 @@ function Marketplace({ publicMode = false }: { publicMode?: boolean }) {
       {!publicMode && <div className="page-heading"><div><span className="eyebrow">The helpay marketplace</span><h1 className="font-display">Offers worth passing on.</h1><p>Legitimate savings from familiar brands, shared by shoppers like you.</p></div><Link href="/upload" className="btn btn-primary" data-testid="button-upload-top"><Tag size={16}/> Share a coupon</Link></div>}
       <section id="offers" className="offer-section">
         <div className="section-title-row"><div><span className="eyebrow">{publicMode ? 'A few good finds' : 'Browse offers'}</span><h2>{publicMode ? 'Worth a closer look.' : 'Available right now'}</h2></div><div className="offers-count">{coupons.data?.length ?? '—'} <span>offers</span></div></div>
-        <div className="filter-row">
+        <div className="filter-row" style={{ flexWrap: 'wrap' }}>
           <label className="search-box"><Search size={18}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search brands or offers" data-testid="input-search-coupons"/></label>
           <label className="select-wrap"><Filter size={16}/><select value={brandFilter} onChange={e => setBrandFilter(e.target.value)} aria-label="Filter by brand" data-testid="select-brand"><option value="">Every brand</option>{(brands.data ?? []).map(b => <option key={b.name} value={b.name}>{b.name}</option>)}</select><ChevronDown size={15}/></label>
+          <label className="select-wrap"><select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} aria-label="Filter by offer type" data-testid="select-type"><option value="">Every type</option><option value="discount">Percentage off</option><option value="worth">Coupon value</option></select><ChevronDown size={15}/></label>
+          <label className="select-wrap"><select value={sort} onChange={e => setSort(e.target.value)} aria-label="Sort offers" data-testid="select-sort"><option value="">Newest first</option><option value="price_asc">Price: low to high</option><option value="price_desc">Price: high to low</option><option value="expiring">Expiring soonest</option></select><ChevronDown size={15}/></label>
         </div>
         {brands.isError && <p className="inline-warning">Brand filters are temporarily unavailable. <button className="text-link" onClick={() => void brands.refetch()}>Try again</button></p>}
         <QueryState loading={coupons.isLoading} error={coupons.isError} retry={() => void coupons.refetch()}>
           {coupons.data?.length ? <div className="coupon-grid">{coupons.data.map(c => <CouponCard key={c.id} coupon={c} onBuy={beginPurchase}/>)}</div> :
-            <div className="empty-state"><div className="empty-icon"><TicketCheck size={24}/></div><h3>No offers found just yet.</h3><p>Try another search, or come back soon. Good coupons get added all the time.</p>{search || brandFilter ? <button className="btn btn-quiet" onClick={() => { setSearch(''); setBrandFilter(''); }} data-testid="button-clear-filters">Clear filters</button> : <Link href={isSignedIn ? '/upload' : '/sign-up'} className="btn btn-primary">Share the first one <ArrowRight size={15}/></Link>}</div>}
+            <div className="empty-state"><div className="empty-icon"><TicketCheck size={24}/></div><h3>No offers found just yet.</h3><p>Try another search, or come back soon. Good coupons get added all the time.</p>{search || brandFilter || typeFilter ? <button className="btn btn-quiet" onClick={() => { setSearch(''); setBrandFilter(''); setTypeFilter(''); }} data-testid="button-clear-filters">Clear filters</button> : <Link href={isSignedIn ? '/upload' : '/sign-up'} className="btn btn-primary">Share the first one <ArrowRight size={15}/></Link>}</div>}
         </QueryState>
       </section>
-      {publicMode && <section className="how-strip"><div><span className="step-number">01</span><div><strong>Find an offer</strong><p>Browse coupons from approved, familiar brands.</p></div></div><div><span className="step-number">02</span><div><strong>See the listed price</strong><p>Prices are shown upfront. Purchases are not enabled yet.</p></div></div><div><span className="step-number">03</span><div><strong>Payments coming later</strong><p>Do not send money. Payment setup is still pending.</p></div></div></section>}
-      <section className="market-trust"><div className="trust-icon"><ShieldCheck size={22}/></div><div><strong>Clarity comes first.</strong><p>Coupon codes aren’t shown publicly. Payments and payouts are currently disabled.</p></div><Link href="/pricing">See the pricing <ArrowRight size={15}/></Link></section>
+      {publicMode && <section className="how-strip"><div><span className="step-number">01</span><div><strong>Find an offer</strong><p>Browse coupons from approved, familiar brands.</p></div></div><div><span className="step-number">02</span><div><strong>{config.paymentsEnabled ? 'Pay by UPI' : 'See the listed price'}</strong><p>{config.paymentsEnabled ? 'Pay the listed price from any UPI app and send us the transaction reference.' : 'Prices are shown upfront. Purchases are not enabled yet.'}</p></div></div><div><span className="step-number">03</span><div><strong>{config.paymentsEnabled ? 'Get your code' : 'Payments coming later'}</strong><p>{config.paymentsEnabled ? 'Once we confirm the payment arrived, the coupon code appears in your account.' : 'Do not send money. Payment setup is still pending.'}</p></div></div></section>}
+      <section className="market-trust"><div className="trust-icon"><ShieldCheck size={22}/></div><div><strong>Clarity comes first.</strong><p>{config.paymentsEnabled ? 'Coupon codes aren’t shown publicly. Payments are reviewed manually before a code is delivered.' : 'Coupon codes aren’t shown publicly. Payments and payouts are currently disabled.'}</p></div><Link href="/pricing">See the pricing <ArrowRight size={15}/></Link></section>
     </main>
     {publicMode && <Footer/>}
-    {showCheckout && activeCoupon && <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setShowCheckout(false); }}>
-      <section className="checkout-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
-        <button className="modal-close" onClick={() => setShowCheckout(false)} aria-label="Close checkout" data-testid="button-close-checkout"><X size={18}/></button>
-        <span className="eyebrow">Payments unavailable</span><h2 id="checkout-title">Purchases are not enabled yet.</h2><p>You can browse and list coupons. Payments and payouts will open after payment setup is complete. Do not send money.</p><button className="btn btn-primary full-width" onClick={() => setShowCheckout(false)}>Back to marketplace</button>
-      </section>
-    </div>}
+    {activeCoupon && <Checkout coupon={activeCoupon} onClose={() => setActiveCoupon(null)}/>}
   </div>;
+}
+
+/** UPI checkout dialog: shows where to pay, takes the transaction reference, then waits for review. */
+function Checkout({ coupon, onClose }: { coupon: CouponListing; onClose: () => void }) {
+  const config = useSiteConfig();
+  const createPurchase = useCreatePurchase();
+  const qc = useQueryClient();
+  const [purchaseDone, setPurchaseDone] = useState(false);
+  const [reference, setReference] = useState('');
+  const submitPurchase = (e: FormEvent) => {
+    e.preventDefault();
+    if (!config.paymentsEnabled || reference.trim().length < 6) return;
+    createPurchase.mutate({ data: { couponId: coupon.id, paymentReference: reference.trim() } }, {
+      onSuccess: async () => {
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: getGetCouponsQueryKey() }),
+          qc.invalidateQueries({ queryKey: getGetTransactionsQueryKey() }),
+          qc.invalidateQueries({ queryKey: getGetSellerSummaryQueryKey() }),
+          qc.invalidateQueries({ queryKey: getGetSellerCouponsQueryKey() }),
+        ]);
+        setPurchaseDone(true);
+      },
+    });
+  };
+  return <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <section className="checkout-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
+        <button className="modal-close" onClick={() => onClose()} aria-label="Close checkout" data-testid="button-close-checkout"><X size={18}/></button>
+        {!config.paymentsEnabled ? <><span className="eyebrow">Payments unavailable</span><h2 id="checkout-title">Purchases are not enabled yet.</h2><p>You can browse and list coupons. Payments and payouts will open after payment setup is complete. Do not send money.</p><button className="btn btn-primary full-width" onClick={() => onClose()}>Back to marketplace</button></> :
+        purchaseDone ? <div className="checkout-success"><div className="success-mark"><Clock3 size={25}/></div><span className="eyebrow">Reference received</span><h2 id="checkout-title">Payment is pending review.</h2><p>We’ve received your transaction reference. Our team will manually check that your payment arrived. Your coupon code is not delivered until payment is verified.</p><div className="pending-banner"><Clock3 size={17}/><span><strong>Pending manual review</strong><small>Your code will appear under My account once the payment is verified.</small></span></div><button className="btn btn-primary full-width" onClick={() => onClose()} data-testid="button-finish-checkout">Got it</button></div> :
+        <><span className="eyebrow">Secure checkout · UPI</span><h2 id="checkout-title">One small step to your offer.</h2><div className="checkout-item"><div className="brand-avatar small">{coupon.brand.slice(0,1)}</div><div><strong>{coupon.brand}</strong><small>{coupon.title}</small></div><b>{money(coupon.salePrice)}</b></div>
+          <div className="qr-panel"><img src={qrImage} alt="UPI payment QR code" data-testid="img-upi-qr"/><div><strong>Pay exactly {money(coupon.salePrice)} by UPI</strong><p>Scan using any UPI app and approve with your UPI PIN. Then enter the transaction reference below.</p><span className="upi-id" data-testid="text-upi-id">{config.upiId}</span></div></div>
+          <form onSubmit={submitPurchase}><label className="label" htmlFor="payment-reference">UPI transaction reference</label><input id="payment-reference" className="field" value={reference} onChange={e => setReference(e.target.value)} minLength={6} maxLength={40} required placeholder="The 12-digit UPI reference / UTR from your app" data-testid="input-payment-reference"/><p className="form-help">Only pay inside your own UPI app. helpay never asks for your UPI PIN. No coupon code is shared before the payment is verified.</p>{createPurchase.isError && <p className="form-error" role="alert">{serverMessage(createPurchase.error, 'We couldn’t submit that reference. Please check it and try again.')}</p>}<button className="btn btn-primary full-width" type="submit" disabled={createPurchase.isPending || reference.trim().length < 6} data-testid="button-submit-purchase">{createPurchase.isPending ? 'Sending reference…' : <>Submit payment reference <ArrowRight size={16}/></>}</button></form>
+        </>}
+      </section>
+    </div>;
+}
+
+/** One offer on its own page, with a link that can be shared. The coupon code is never part of it. */
+function OfferPage() {
+  const id = Number(useParams<{ id: string }>().id);
+  const { isSignedIn } = useAuth();
+  const [, setLocation] = useLocation();
+  // Holds its own copy of the offer so the dialog survives the offer leaving the marketplace once reserved.
+  const [buying, setBuying] = useState<CouponListing | null>(null);
+  const [shared, setShared] = useState('');
+  const offer = useQuery({ queryKey: ['offer', id], retry: false, enabled: Number.isSafeInteger(id) && id > 0, queryFn: async (): Promise<CouponListing | null> => {
+    const res = await fetch(`${basePath}/api/coupons/${id}`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('offer');
+    return res.json();
+  } });
+  const coupon = offer.data;
+  useEffect(() => { if (coupon) document.title = `${coupon.brand}: ${coupon.title} — helpay`; return () => { document.title = 'helpay — coupons, passed on fairly'; }; }, [coupon]);
+  const share = async () => {
+    if (!coupon) return;
+    const data = { title: `${coupon.brand} on helpay`, text: `${coupon.title} — ${money(coupon.salePrice)} on helpay`, url: window.location.href };
+    try {
+      if (navigator.share) await navigator.share(data);
+      else { await navigator.clipboard.writeText(data.url); setShared('Link copied'); }
+    } catch (err) { if ((err as Error).name !== 'AbortError') setShared('Copy the link from your address bar'); }
+  };
+  return <div className="site-shell"><SiteHeader/><main className="form-page">
+    <Link href={isSignedIn ? '/dashboard' : '/'} className="back-link" data-testid="link-back-marketplace"><ArrowDownLeft size={15}/> All offers</Link>
+    <div style={{ maxWidth: 460, margin: '24px auto 0' }}>
+      {offer.isLoading ? <div className="coupon-card skeleton-card"><div className="skeleton-line short"/><div className="skeleton-line"/><div className="skeleton-line short"/></div>
+      : offer.isError ? <div className="state-card error-state"><CircleAlert size={26}/><h3>We couldn’t load this offer.</h3><p>Check your connection and try again.</p><button className="btn btn-primary" onClick={() => void offer.refetch()}>Try again</button></div>
+      : !coupon ? <div className="empty-state" data-testid="offer-gone"><div className="empty-icon"><TicketCheck size={24}/></div><h3>This offer is no longer available.</h3><p>It may have been sold, withdrawn or expired. There are more where it came from.</p><Link href={isSignedIn ? '/dashboard' : '/'} className="btn btn-primary">Browse offers <ArrowRight size={15}/></Link></div>
+      : <>
+        <CouponCard coupon={coupon} onBuy={() => { if (!isSignedIn) setLocation('/sign-in'); else setBuying(coupon); }}/>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16, flexWrap: 'wrap' }}>
+          <button className="btn btn-quiet" onClick={() => void share()} data-testid="button-share-offer"><Share2 size={15}/> Share this offer</button>
+          {shared && <span className="form-help" role="status" style={{ margin: 0 }}>{shared}</span>}
+        </div>
+        <p className="form-help" style={{ marginTop: 14 }}>Valid until {dateLabel(coupon.expiryDate)}. Fixed price {money(coupon.salePrice)}; the seller receives {money(coupon.sellerEarnings)}.</p>
+      </>}
+      {buying && <Checkout coupon={buying} onClose={() => { setBuying(null); void offer.refetch(); }}/>}
+    </div>
+  </main><Footer/></div>;
 }
 
 function UploadPage() {
@@ -251,9 +323,9 @@ function UploadPage() {
           <div><label className="label" htmlFor="coupon-title">Offer title</label><input id="coupon-title" className="field" minLength={3} maxLength={100} required value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. 30% off your next order" data-testid="input-coupon-title"/></div>
           <div className="two-fields"><div><label className="label" htmlFor="coupon-kind">Offer type</label><select className="field" id="coupon-kind" value={category} onChange={e => setCategory(e.target.value as 'discount'|'worth')} data-testid="select-coupon-category"><option value="discount">Percentage discount</option><option value="worth">Coupon value</option></select></div><div><label className="label" htmlFor="coupon-value">{category === 'discount' ? 'Discount (%)' : 'Coupon worth (₹)'}</label><input id="coupon-value" type="number" className="field" value={value} min={category === 'discount' ? 10 : 0} max={category === 'discount' ? 100 : 1000} onChange={e => setValue(e.target.value)} required placeholder={category === 'discount' ? '10–100' : '0–1000'} data-testid="input-coupon-value"/></div></div>
           <div><label className="label" htmlFor="coupon-code">Coupon code</label><input id="coupon-code" className="field" value={code} onChange={e => setCode(e.target.value)} minLength={3} maxLength={120} required placeholder="Enter the code exactly as shown" data-testid="input-coupon-code"/><small className="form-help">Your code stays private and is never shown on public listings.</small></div>
-          <div><label className="label" htmlFor="coupon-expiry">Expiry date</label><input id="coupon-expiry" type="date" className="field" value={expiryDate} min={new Date().toISOString().slice(0,10)} onChange={e => setExpiryDate(e.target.value)} required data-testid="input-coupon-expiry"/></div>
+          <div><label className="label" htmlFor="coupon-expiry">Expiry date</label><input id="coupon-expiry" type="date" className="field" value={expiryDate} min={new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date())} onChange={e => setExpiryDate(e.target.value)} required data-testid="input-coupon-expiry"/></div>
           <div className="earnings-preview"><div><small>Listed at</small><strong>{matchedRule ? money(matchedRule.salePrice) : '—'}</strong></div><span className="preview-divider"/><div><small>Your earnings</small><strong>{matchedRule ? money(matchedRule.sellerEarnings) : '—'}</strong></div>{!matchedRule && <span className="preview-footnote">Select a value to see fixed pricing</span>}</div>
-          {createCoupon.isError && <p className="form-error">Couldn’t submit this coupon. Check the details and try again.</p>}
+          {createCoupon.isError && <p className="form-error" role="alert">{serverMessage(createCoupon.error, 'Couldn’t submit this coupon. Check the details and try again.')}</p>}
            <button className="btn btn-primary full-width" type="submit" disabled={createCoupon.isPending || brands.isLoading || !matchedRule || !brand || !expiryDate} data-testid="button-submit-coupon">{createCoupon.isPending ? 'Submitting…' : <>Submit coupon <ArrowRight size={16}/></>}</button>
         </form></>}
     </section></div>
@@ -266,10 +338,22 @@ function SellerPage() {
   const transactions = useGetTransactions({ query: { queryKey: getGetTransactionsQueryKey() } });
   const payoutRequests = useGetPayoutRequests({ query: { queryKey: getGetPayoutRequestsQueryKey() } });
   const payout = useCreatePayoutRequest();
+  const config = useSiteConfig();
   const qc = useQueryClient();
   const [payoutRequested, setPayoutRequested] = useState(false);
   const [payoutResponse, setPayoutResponse] = useState<PayoutRequest | null>(null);
   const [upiId, setUpiId] = useState('');
+  const [withdrawing, setWithdrawing] = useState<number | null>(null);
+  const [withdrawError, setWithdrawError] = useState('');
+  const withdrawCoupon = async (c: { id: number; brand: string; title: string }) => {
+    if (!window.confirm(`Withdraw “${c.title}” (${c.brand}) from the marketplace? Buyers will no longer see it. This can’t be undone.`)) return;
+    setWithdrawing(c.id); setWithdrawError('');
+    try {
+      await apiPost(`/api/seller/coupons/${c.id}/withdraw`);
+      await Promise.all([qc.invalidateQueries({ queryKey: getGetSellerCouponsQueryKey() }), qc.invalidateQueries({ queryKey: getGetCouponsQueryKey() })]);
+    } catch (err) { setWithdrawError(err instanceof Error ? err.message : 'Couldn’t withdraw this listing. Please try again.'); }
+    finally { setWithdrawing(null); }
+  };
   const recentSales = (transactions.data ?? []).filter(t => t.direction === 'sale');
   const handlePayout = () => payout.mutate({ data: { upiId: upiId.trim() } }, { onSuccess: async (request) => {
     await Promise.all([qc.invalidateQueries({ queryKey: getGetSellerSummaryQueryKey() }), qc.invalidateQueries({ queryKey: getGetTransactionsQueryKey() }), qc.invalidateQueries({ queryKey: getGetPayoutRequestsQueryKey() })]);
@@ -286,12 +370,14 @@ function SellerPage() {
         <div className="stat-card"><span>Pending payments</span><strong>{summary.isLoading ? <i className="value-skeleton"/> : money(summary.data?.pendingPayments)}</strong><small>Awaiting payment review</small><Clock3 size={20}/></div>
         <div className="stat-card"><span>Coupons sold</span><strong>{summary.isLoading ? <i className="value-skeleton"/> : (summary.data?.couponsSold ?? 0)}</strong><small>Across your listings</small><TicketCheck size={20}/></div>
       </div>
-       <section className="payout-banner"><div className="payout-mark"><HandCoins size={23}/></div><div className="payout-copy"><h3>Payouts are disabled</h3><p>Bank and payment setup will be completed separately. No money transfers are available.</p></div></section>
-      {payout.isError && <p className="form-error">Payout request could not be submitted. Please try again.</p>}
+       {config.payoutsEnabled ? <section className="payout-banner"><div className="payout-mark"><HandCoins size={23}/></div><div className="payout-copy"><h3>Ready to receive your earnings?</h3><p>Enter your UPI ID. A reviewer will confirm the transfer before this request is marked paid.</p></div><label className="payout-input"><span>UPI ID for payout</span><input value={upiId} onChange={e => setUpiId(e.target.value)} placeholder="name@bank" autoComplete="off" data-testid="input-payout-upi"/></label><button className="btn btn-accent" onClick={handlePayout} disabled={payout.isPending || payoutRequested || (summary.data?.availableToClaim ?? 0) <= 0 || !/^[A-Za-z0-9._-]{2,255}@[A-Za-z0-9._-]{2,64}$/.test(upiId.trim())} data-testid="button-request-payout">{payoutRequested ? 'Request submitted' : payout.isPending ? 'Sending request…' : <>Request payout <ArrowRight size={15}/></>}</button></section>
+       : <section className="payout-banner"><div className="payout-mark"><HandCoins size={23}/></div><div className="payout-copy"><h3>Payouts are disabled</h3><p>Bank and payment setup will be completed separately. No money transfers are available.</p></div></section>}
+      {payout.isError && <p className="form-error" role="alert">{serverMessage(payout.error, 'Payout request could not be submitted. Please try again.')}</p>}
       {payoutResponse && <div className="inline-success" data-testid="status-payout-request"><Check size={16}/> Request #{payoutResponse.id} for {money(payoutResponse.amount)} received · {statusLabel[payoutResponse.status] ?? payoutResponse.status}</div>}
        {payoutRequests.data && payoutRequests.data.length > 0 && <section className="dashboard-section payout-history"><div className="section-title-row"><div><span className="eyebrow">Payout activity</span><h2>Your payout requests</h2></div></div><div className="listing-list">{payoutRequests.data.map(request => <div className="listing-row" key={request.id}><div className="listing-main"><strong>Request #{request.id}</strong><span>{dateLabel(request.createdAt)}</span></div><div className="listing-value"><strong>{money(request.amount)}</strong><small>requested</small></div><span className={`status-pill status-${request.status}`}>{statusLabel[request.status] ?? request.status}</span></div>)}</div></section>}
        <section className="dashboard-section"><div className="section-title-row"><div><span className="eyebrow">Your listings</span><h2>Coupons you’ve shared</h2></div><span className="section-count">{coupons.data?.length ?? 0} listed</span></div>
-         {coupons.isLoading ? <div className="listing-row skeleton-card"/> : coupons.isError ? <div className="state-card"><p>Couldn’t load your coupons.</p><button className="text-link" onClick={() => void coupons.refetch()}>Try again</button></div> : coupons.data?.length ? <div className="listing-list">{coupons.data.map(c => <div className="listing-row" key={c.id} data-testid={`row-seller-coupon-${c.id}`}><div className="brand-avatar small">{c.brand.slice(0,1)}</div><div className="listing-main"><strong>{c.brand}</strong><span>{c.title}</span></div><div className="listing-value"><strong>{money(c.sellerEarnings)}</strong><small>your share</small></div><span className={`status-pill ${c.status === 'available' ? 'status-good' : 'status-pending'}`}>{c.status === 'available' ? 'Listed' : c.status === 'reserved' ? 'Payment review pending' : c.status}</span></div>)}</div> : <div className="empty-state compact-empty"><div className="empty-icon"><TicketCheck size={22}/></div><h3>Your first listing starts here.</h3><p>Share a coupon you won’t use and put it to good use for someone else.</p><Link href="/upload" className="btn btn-primary">Share a coupon</Link></div>}
+         {withdrawError && <p className="form-error" role="alert">{withdrawError}</p>}
+         {coupons.isLoading ? <div className="listing-row skeleton-card"/> : coupons.isError ? <div className="state-card"><p>Couldn’t load your coupons.</p><button className="text-link" onClick={() => void coupons.refetch()}>Try again</button></div> : coupons.data?.length ? <div className="listing-list">{coupons.data.map(c => <div className="listing-row" key={c.id} data-testid={`row-seller-coupon-${c.id}`}><div className="brand-avatar small">{c.brand.slice(0,1)}</div><div className="listing-main"><strong>{c.brand}</strong><span>{c.title}</span>{c.code && <span>Your code: <code className="coupon-code">{c.code}</code></span>}</div><div className="listing-value"><strong>{money(c.sellerEarnings)}</strong><small>your share</small></div><span className={`status-pill ${c.status === 'available' ? 'status-good' : 'status-pending'}`}>{c.status === 'available' ? 'Listed' : c.status === 'reserved' ? 'Payment review pending' : c.status === 'withdrawn' ? 'Withdrawn' : c.status === 'sold' ? 'Sold' : c.status}</span>{c.status === 'available' && <button className="text-link" onClick={() => void withdrawCoupon(c)} disabled={withdrawing === c.id} data-testid={`button-withdraw-${c.id}`}>{withdrawing === c.id ? 'Withdrawing…' : 'Withdraw'}</button>}</div>)}</div> : <div className="empty-state compact-empty"><div className="empty-icon"><TicketCheck size={22}/></div><h3>Your first listing starts here.</h3><p>Share a coupon you won’t use and put it to good use for someone else.</p><Link href="/upload" className="btn btn-primary">Share a coupon</Link></div>}
       </section>
       <section className="dashboard-section"><div className="section-title-row"><div><span className="eyebrow">Latest activity</span><h2>Your sales</h2></div><Link href="/profile" className="text-link">All transactions <ArrowRight size={14}/></Link></div>{recentSales.length ? <TransactionTable transactions={recentSales.slice(0,5)}/> : <div className="empty-state compact-empty"><p>No sales to show yet. Once a buyer’s payment is verified, the sale will appear here.</p></div>}</section>
     </main><Footer/></div></Protected>
@@ -344,7 +430,7 @@ function AdminPage() {
     <div className="page-heading"><div><span className="eyebrow">Restricted reviewer area</span><h1 className="font-display">Payment review.</h1><p>Verify UPI payments before sharing a code. Mark payouts paid only after completing the transfer.</p></div></div>
     {noAccess ? <div className="state-card error-state"><ShieldCheck size={25}/><h3>Reviewer access is required.</h3><p>This area is limited to the helpay reviewer account. If you should have access, confirm that you’re signed in with the configured reviewer email.</p></div> : <>
       <section className="review-warning"><CircleAlert size={20}/><div><strong>Manual checks are required.</strong><p>Compare each payment reference with the received UPI payment before approving. Coupon codes are released only after you mark a payment verified.</p></div></section>
-      {(purchases.isError || payouts.isError || reviewPurchase.isError || reviewPayout.isError) && <div className="inline-error"><CircleAlert size={16}/> Some review information could not be loaded or saved. Try again.</div>}
+      {(reviewPurchase.isError || reviewPayout.isError) && <div className="inline-error" role="alert"><CircleAlert size={16}/> {serverMessage(reviewPurchase.error ?? reviewPayout.error, 'That review could not be saved. Try again.')}</div>}
       <section className="dashboard-section"><div className="section-title-row"><div><span className="eyebrow">Buyer payments</span><h2>Waiting for verification</h2></div><span className="section-count">{purchases.data?.length ?? 0} pending</span></div>
         {purchases.isLoading ? <div className="listing-row skeleton-card"/> : purchases.data?.length ? <div className="review-list">{purchases.data.map((purchase: AdminPurchase) => <article className="review-row" key={purchase.id} data-testid={`row-review-purchase-${purchase.id}`}><div className="review-main"><strong>{purchase.brand} · {purchase.title}</strong><span>Payment ref: <code>{purchase.paymentReference}</code></span><small>{dateLabel(purchase.createdAt)} · {money(purchase.amount)} · Seller receives {money(purchase.sellerEarnings)}</small></div><div className="review-actions"><button className="btn btn-quiet" onClick={() => decidePurchase(purchase.id, 'rejected')} disabled={reviewPurchase.isPending} data-testid={`button-reject-purchase-${purchase.id}`}>Reject</button><button className="btn btn-primary" onClick={() => decidePurchase(purchase.id, 'verified')} disabled={reviewPurchase.isPending} data-testid={`button-verify-purchase-${purchase.id}`}>Verify payment</button></div></article>)}</div> : <div className="empty-state compact-empty"><h3>No payment references waiting.</h3><p>New UPI submissions will appear here for manual verification.</p></div>}
       </section>
@@ -376,10 +462,13 @@ function RuleCard({ rule }: { rule: { basis: string; label: string; minValue: nu
 }
 
 function SignInPage() {
-  return <div className="auth-layout"><div className="auth-brand"><Mark/><span>Coupons, passed on fairly.</span></div><div className="auth-form"><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`}/></div><aside className="auth-aside"><div className="auth-aside-content"><span className="eyebrow">A little goes a long way</span><h1 className="font-display">Savings have a way of finding you.</h1><p>Find a real offer from a familiar brand. Know exactly what it costs. That’s helpay.</p><div className="auth-quote"><ShieldCheck size={19}/><span>Clear prices. Private codes. Payments currently disabled.</span></div></div><span className="auth-aside-foot">GOOD OFFERS FIND GOOD HOMES.</span></aside></div>;
+  return <div className="auth-layout"><div className="auth-brand"><Mark/><span>Coupons, passed on fairly.</span></div><div className="auth-form"><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`}/></div><aside className="auth-aside"><div className="auth-aside-content"><span className="eyebrow">A little goes a long way</span><h1 className="font-display">Savings have a way of finding you.</h1><p>Find a real offer from a familiar brand. Know exactly what it costs. That’s helpay.</p><div className="auth-quote"><ShieldCheck size={19}/><span>Clear prices. Private codes. No hidden fees.</span></div></div><span className="auth-aside-foot">GOOD OFFERS FIND GOOD HOMES.</span></aside></div>;
 }
 function SignUpPage() {
   return <div className="auth-layout"><div className="auth-brand"><Mark/><span>Coupons, passed on fairly.</span></div><div className="auth-form"><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`}/></div><aside className="auth-aside"><div className="auth-aside-content"><span className="eyebrow">Make good offers count</span><h1 className="font-display">Share a little savings.</h1><p>List coupons you won’t use, see your exact earnings upfront, and let another shopper make the most of them.</p><div className="auth-quote"><HandCoins size={19}/><span>Fixed tiers. Clear earnings. No surprises.</span></div></div><span className="auth-aside-foot">GOOD OFFERS FIND GOOD HOMES.</span></aside></div>;
+}
+function ResetPasswordPage() {
+  return <div className="auth-layout"><div className="auth-brand"><Mark/><span>Coupons, passed on fairly.</span></div><div className="auth-form"><ResetPassword/></div><aside className="auth-aside"><div className="auth-aside-content"><span className="eyebrow">Back in a moment</span><h1 className="font-display">Let’s get you signed in again.</h1><p>We’ll email you a secure link. It works once and expires soon after it’s sent.</p><div className="auth-quote"><ShieldCheck size={19}/><span>Clear prices. Private codes. No hidden fees.</span></div></div><span className="auth-aside-foot">GOOD OFFERS FIND GOOD HOMES.</span></aside></div>;
 }
 function ClerkQueryCacheInvalidator() {
   const { addListener } = useClerk();
@@ -401,12 +490,14 @@ function ClerkRoutes() {
         <Route path="/" component={HomeRedirect}/>
         <Route path="/sign-in/*?" component={SignInPage}/>
         <Route path="/sign-up/*?" component={SignUpPage}/>
+        <Route path="/reset-password" component={ResetPasswordPage}/>
         <Route path="/dashboard"><Protected><Marketplace/></Protected></Route>
         <Route path="/upload" component={UploadPage}/>
         <Route path="/seller" component={SellerPage}/>
         <Route path="/profile" component={ProfilePage}/>
         <Route path="/admin"><Protected><AdminPage/></Protected></Route>
         <Route path="/pricing" component={PricingPage}/>
+        <Route path="/offer/:id" component={OfferPage}/>
         <Route><NotFound/></Route>
       </Switch>
       <BottomNav/>
