@@ -1,18 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
-import { ClerkProvider, SignIn, SignUp, useAuth, useClerk, useUser } from './lib/auth';
+import { ClerkProvider, isSupabaseConfigured, ResetPassword, SignIn, SignUp, useAuth, useClerk, useUser } from './lib/auth';
 import {
   useCreateCoupon, useCreatePayoutRequest, useCreatePurchase, useGetBrands,
   useGetCouponPricing, useGetCoupons, useGetSellerCoupons, useGetSellerSummary,
-  useGetTransactions, useGetPayoutRequests, useGetAdminPurchases,
-  useGetAdminPayoutRequests, useReviewPurchase, useReviewPayoutRequest,
+  useGetTransactions, useGetPayoutRequests,
   getGetCouponsQueryKey, getGetSellerCouponsQueryKey, getGetSellerSummaryQueryKey,
   getGetTransactionsQueryKey, getGetPayoutRequestsQueryKey,
   getGetBrandsQueryKey, getGetCouponPricingQueryKey,
-  getGetAdminPurchasesQueryKey, getGetAdminPayoutRequestsQueryKey,
 } from '@workspace/api-client-react';
-import type { CouponListing, CouponInput, Transaction, PayoutRequest, AdminPurchase, AdminPayoutRequest } from '@workspace/api-client-react';
+import type { CouponListing, CouponInput, Transaction, PayoutRequest } from '@workspace/api-client-react';
 import { Route, Switch, Router as WouterRouter, Link, useLocation } from 'wouter';
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, BadgeCheck, Banknote, Check,
@@ -24,9 +22,6 @@ import {
 
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
-const clerkPubKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
-
 function stripBase(path: string) {
   return basePath && path.startsWith(basePath) ? path.slice(basePath.length) || '/' : path;
 }
@@ -39,7 +34,7 @@ const statusLabel: Record<string, string> = {
 };
 
 function Mark({ light = false }: { light?: boolean }) {
-  return <Link href="/" data-testid="link-home" className={`brand-mark ${light ? 'brand-mark-light' : ''}`}><span className="mark-symbol">h.</span><span>helpay</span></Link>;
+  return <Link href="/" data-testid="link-home" className={`brand-mark ${light ? 'brand-mark-light' : ''}`}><span className="mark-symbol">O</span><span>OfferPay</span></Link>;
 }
 
 function SiteHeader({ compact = false }: { compact?: boolean }) {
@@ -58,7 +53,7 @@ function SiteHeader({ compact = false }: { compact?: boolean }) {
         {isSignedIn ? <>
           <Link href="/profile" className="header-profile" data-testid="link-profile">My account <ArrowRight size={15}/></Link>
           <button className="icon-button hide-mobile" aria-label="Sign out" onClick={() => signOut({ redirectUrl: basePath || '/' })} data-testid="button-sign-out"><LogOut size={17}/></button>
-        </> : <><Link className="text-link hide-mobile" href="/sign-in" data-testid="link-sign-in">Sign in</Link><Link className="btn btn-primary" href="/sign-up" data-testid="link-get-started">{compact ? 'Join helpay' : 'Get started'} <ArrowRight size={16}/></Link></>}
+        </> : <><Link className="text-link hide-mobile" href="/sign-in" data-testid="link-sign-in">Sign in</Link><Link className="btn btn-primary" href="/sign-up" data-testid="link-get-started">{compact ? 'Join OfferPay' : 'Get started'} <ArrowRight size={16}/></Link></>}
         <button className="icon-button mobile-menu" aria-label="Toggle menu" onClick={() => setMenuOpen(v => !v)} data-testid="button-menu">{menuOpen ? <X size={19}/> : <Menu size={19}/>}</button>
       </div>
     </div>
@@ -70,7 +65,7 @@ function SiteHeader({ compact = false }: { compact?: boolean }) {
 }
 
 function Footer() {
-  return <footer className="footer"><div className="footer-inner"><Mark light/><p>Good offers shouldn’t go to waste.<br/>ceo of c.j mahindra </p><div><Link href="/pricing">Pricing</Link><Link href="/sign-in">Sign in</Link><Link href="/sign-up">Join helpay</Link><Link href="/admin">Reviewer</Link></div><small>Transparent prices. Familiar brands. Offers shared fairly.</small></div></footer>;
+  return <footer className="footer"><div className="footer-inner"><Mark light/><p>Good offers shouldn’t go to waste.<br/>ceo of c.j mahindra </p><div><Link href="/pricing">Pricing</Link><Link href="/sign-in">Sign in</Link><Link href="/sign-up">Join OfferPay</Link></div><small>Transparent prices. Familiar brands. Offers shared fairly.</small></div></footer>;
 }
 
 function BottomNav() {
@@ -84,7 +79,7 @@ function BottomNav() {
     { href: isSignedIn ? '/profile' : '/sign-in', label: 'Profile', icon: <CreditCard size={19}/> },
   ];
   return (
-    <nav className="bottom-nav" aria-label="Helpay navigation">
+    <nav className="bottom-nav" aria-label="OfferPay navigation">
       {items.map(item => <Link key={item.label} href={item.href} className="bottom-nav-item is-active font-extrabold text-[20px]" aria-current={location === item.href ? 'page' : undefined}>
         {item.icon}<span>{item.label}</span>
       </Link>)}
@@ -181,7 +176,7 @@ function Marketplace({ publicMode = false }: { publicMode?: boolean }) {
       </div>
     </section>}
     <main className={publicMode ? 'marketplace-main' : 'app-main'}>
-      {!publicMode && <div className="page-heading"><div><span className="eyebrow">The helpay marketplace</span><h1 className="font-display">Offers worth passing on.</h1><p>Legitimate savings from familiar brands, shared by shoppers like you.</p></div><Link href="/upload" className="btn btn-primary" data-testid="button-upload-top"><Tag size={16}/> Share a coupon</Link></div>}
+      {!publicMode && <div className="page-heading"><div><span className="eyebrow">The OfferPay marketplace</span><h1 className="font-display">Offers worth passing on.</h1><p>Legitimate savings from familiar brands, shared by shoppers like you.</p></div><Link href="/upload" className="btn btn-primary" data-testid="button-upload-top"><Tag size={16}/> Share a coupon</Link></div>}
       <section id="offers" className="offer-section">
         <div className="section-title-row"><div><span className="eyebrow">{publicMode ? 'A few good finds' : 'Browse offers'}</span><h2>{publicMode ? 'Worth a closer look.' : 'Available right now'}</h2></div><div className="offers-count">{coupons.data?.length ?? '—'} <span>offers</span></div></div>
         <div className="filter-row">
@@ -307,51 +302,11 @@ function ProfilePage() {
   const transactions = useGetTransactions({ query: { queryKey: getGetTransactionsQueryKey() } });
   const userName = user?.fullName || user?.primaryEmailAddress?.emailAddress || 'Your account';
   return <Protected><div className="site-shell"><SiteHeader/><main className="app-main profile-page">
-    <div className="page-heading"><div><span className="eyebrow">Your helpay account</span><h1 className="font-display">Good to have you here.</h1><p>Manage your details and keep an eye on every offer you’ve shared or bought.</p></div></div>
+    <div className="page-heading"><div><span className="eyebrow">Your OfferPay account</span><h1 className="font-display">Good to have you here.</h1><p>Manage your details and keep an eye on every offer you’ve shared or bought.</p></div></div>
     <section className="profile-card"><div className="profile-avatar">{userName.slice(0,1).toUpperCase()}</div><div className="profile-details"><span className="eyebrow">Account details</span><h2 data-testid="text-account-name">{userName}</h2><p>{user?.primaryEmailAddress?.emailAddress ?? 'Email address not available'}</p></div><div className="account-verified"><BadgeCheck size={17}/> Signed in securely</div></section>
     <section className="dashboard-section"><div className="section-title-row"><div><span className="eyebrow">The full picture</span><h2>Transaction history</h2></div><span className="section-count">{transactions.data?.length ?? 0} records</span></div>
       <QueryState loading={transactions.isLoading} error={transactions.isError} retry={() => void transactions.refetch()}>{transactions.data?.length ? <TransactionTable transactions={transactions.data}/> : <div className="empty-state compact-empty"><div className="empty-icon"><CreditCard size={22}/></div><h3>No transactions just yet.</h3><p>Your purchases and coupon sales will show here, with their current review status.</p><Link href="/dashboard" className="btn btn-primary">Browse marketplace</Link></div>}</QueryState>
     </section>
-  </main><Footer/></div></Protected>;
-}
-
-function AdminPage() {
-  const purchases = useGetAdminPurchases({ query: { queryKey: getGetAdminPurchasesQueryKey() } });
-  const payouts = useGetAdminPayoutRequests({ query: { queryKey: getGetAdminPayoutRequestsQueryKey() } });
-  const reviewPurchase = useReviewPurchase();
-  const reviewPayout = useReviewPayoutRequest();
-  const qc = useQueryClient();
-  const refreshMarketplace = async () => Promise.all([
-    qc.invalidateQueries({ queryKey: getGetCouponsQueryKey() }),
-    qc.invalidateQueries({ queryKey: getGetSellerCouponsQueryKey() }),
-    qc.invalidateQueries({ queryKey: getGetSellerSummaryQueryKey() }),
-    qc.invalidateQueries({ queryKey: getGetTransactionsQueryKey() }),
-    qc.invalidateQueries({ queryKey: getGetPayoutRequestsQueryKey() }),
-    qc.invalidateQueries({ queryKey: getGetAdminPurchasesQueryKey() }),
-    qc.invalidateQueries({ queryKey: getGetAdminPayoutRequestsQueryKey() }),
-  ]);
-  const decidePurchase = (id: number, status: 'verified'|'rejected') => reviewPurchase.mutate(
-    { id, data: { status } },
-    { onSuccess: refreshMarketplace },
-  );
-  const decidePayout = (id: number, status: 'paid'|'rejected') => reviewPayout.mutate(
-    { id, data: { status } },
-    { onSuccess: refreshMarketplace },
-  );
-  const noAccess = purchases.isError || payouts.isError;
-
-  return <Protected><div className="site-shell"><SiteHeader/><main className="app-main admin-page">
-    <div className="page-heading"><div><span className="eyebrow">Restricted reviewer area</span><h1 className="font-display">Payment review.</h1><p>Verify UPI payments before sharing a code. Mark payouts paid only after completing the transfer.</p></div></div>
-    {noAccess ? <div className="state-card error-state"><ShieldCheck size={25}/><h3>Reviewer access is required.</h3><p>This area is limited to the helpay reviewer account. If you should have access, confirm that you’re signed in with the configured reviewer email.</p></div> : <>
-      <section className="review-warning"><CircleAlert size={20}/><div><strong>Manual checks are required.</strong><p>Compare each payment reference with the received UPI payment before approving. Coupon codes are released only after you mark a payment verified.</p></div></section>
-      {(purchases.isError || payouts.isError || reviewPurchase.isError || reviewPayout.isError) && <div className="inline-error"><CircleAlert size={16}/> Some review information could not be loaded or saved. Try again.</div>}
-      <section className="dashboard-section"><div className="section-title-row"><div><span className="eyebrow">Buyer payments</span><h2>Waiting for verification</h2></div><span className="section-count">{purchases.data?.length ?? 0} pending</span></div>
-        {purchases.isLoading ? <div className="listing-row skeleton-card"/> : purchases.data?.length ? <div className="review-list">{purchases.data.map((purchase: AdminPurchase) => <article className="review-row" key={purchase.id} data-testid={`row-review-purchase-${purchase.id}`}><div className="review-main"><strong>{purchase.brand} · {purchase.title}</strong><span>Payment ref: <code>{purchase.paymentReference}</code></span><small>{dateLabel(purchase.createdAt)} · {money(purchase.amount)} · Seller receives {money(purchase.sellerEarnings)}</small></div><div className="review-actions"><button className="btn btn-quiet" onClick={() => decidePurchase(purchase.id, 'rejected')} disabled={reviewPurchase.isPending} data-testid={`button-reject-purchase-${purchase.id}`}>Reject</button><button className="btn btn-primary" onClick={() => decidePurchase(purchase.id, 'verified')} disabled={reviewPurchase.isPending} data-testid={`button-verify-purchase-${purchase.id}`}>Verify payment</button></div></article>)}</div> : <div className="empty-state compact-empty"><h3>No payment references waiting.</h3><p>New UPI submissions will appear here for manual verification.</p></div>}
-      </section>
-      <section className="dashboard-section"><div className="section-title-row"><div><span className="eyebrow">Seller payouts</span><h2>Transfer requests</h2></div><span className="section-count">{payouts.data?.length ?? 0} pending</span></div>
-        {payouts.isLoading ? <div className="listing-row skeleton-card"/> : payouts.data?.length ? <div className="review-list">{payouts.data.map((request: AdminPayoutRequest) => <article className="review-row" key={request.id} data-testid={`row-review-payout-${request.id}`}><div className="review-main"><strong>Request #{request.id} · {money(request.amount)}</strong><span>UPI destination: <code>{request.upiId}</code></span><small>Seller account {request.sellerId.slice(0, 12)}… · {dateLabel(request.createdAt)}</small></div><div className="review-actions"><button className="btn btn-quiet" onClick={() => decidePayout(request.id, 'rejected')} disabled={reviewPayout.isPending} data-testid={`button-reject-payout-${request.id}`}>Reject</button><button className="btn btn-primary" onClick={() => decidePayout(request.id, 'paid')} disabled={reviewPayout.isPending} data-testid={`button-mark-paid-${request.id}`}>Mark paid</button></div></article>)}</div> : <div className="empty-state compact-empty"><h3>No payout requests waiting.</h3><p>Seller claims will appear here after earnings are available.</p></div>}
-      </section>
-    </>}
   </main><Footer/></div></Protected>;
 }
 
@@ -376,10 +331,13 @@ function RuleCard({ rule }: { rule: { basis: string; label: string; minValue: nu
 }
 
 function SignInPage() {
-  return <div className="auth-layout"><div className="auth-brand"><Mark/><span>Coupons, passed on fairly.</span></div><div className="auth-form"><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`}/></div><aside className="auth-aside"><div className="auth-aside-content"><span className="eyebrow">A little goes a long way</span><h1 className="font-display">Savings have a way of finding you.</h1><p>Find a real offer from a familiar brand. Know exactly what it costs. That’s helpay.</p><div className="auth-quote"><ShieldCheck size={19}/><span>Clear prices. Private codes. Payments currently disabled.</span></div></div><span className="auth-aside-foot">GOOD OFFERS FIND GOOD HOMES.</span></aside></div>;
+  return <div className="auth-layout"><div className="auth-brand"><Mark/><span>Coupons, passed on fairly.</span></div><div className="auth-form"><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`}/></div><aside className="auth-aside"><div className="auth-aside-content"><span className="eyebrow">A little goes a long way</span><h1 className="font-display">Savings have a way of finding you.</h1><p>Find a real offer from a familiar brand. Know exactly what it costs. That’s OfferPay.</p><div className="auth-quote"><ShieldCheck size={19}/><span>Clear prices. Private codes. Payments currently disabled.</span></div></div><span className="auth-aside-foot">GOOD OFFERS FIND GOOD HOMES.</span></aside></div>;
 }
 function SignUpPage() {
   return <div className="auth-layout"><div className="auth-brand"><Mark/><span>Coupons, passed on fairly.</span></div><div className="auth-form"><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`}/></div><aside className="auth-aside"><div className="auth-aside-content"><span className="eyebrow">Make good offers count</span><h1 className="font-display">Share a little savings.</h1><p>List coupons you won’t use, see your exact earnings upfront, and let another shopper make the most of them.</p><div className="auth-quote"><HandCoins size={19}/><span>Fixed tiers. Clear earnings. No surprises.</span></div></div><span className="auth-aside-foot">GOOD OFFERS FIND GOOD HOMES.</span></aside></div>;
+}
+function ResetPasswordPage() {
+  return <div className="auth-layout"><div className="auth-brand"><Mark/><span>Coupons, passed on fairly.</span></div><div className="auth-form"><ResetPassword/></div><aside className="auth-aside"><div className="auth-aside-content"><span className="eyebrow">Account security</span><h1 className="font-display">A fresh start, securely.</h1><p>Choose a new password to get back to your OfferPay account.</p></div><span className="auth-aside-foot">GOOD OFFERS FIND GOOD HOMES.</span></aside></div>;
 }
 function ClerkQueryCacheInvalidator() {
   const { addListener } = useClerk();
@@ -401,11 +359,11 @@ function ClerkRoutes() {
         <Route path="/" component={HomeRedirect}/>
         <Route path="/sign-in/*?" component={SignInPage}/>
         <Route path="/sign-up/*?" component={SignUpPage}/>
+        <Route path="/reset-password" component={ResetPasswordPage}/>
         <Route path="/dashboard"><Protected><Marketplace/></Protected></Route>
         <Route path="/upload" component={UploadPage}/>
         <Route path="/seller" component={SellerPage}/>
         <Route path="/profile" component={ProfilePage}/>
-        <Route path="/admin"><Protected><AdminPage/></Protected></Route>
         <Route path="/pricing" component={PricingPage}/>
         <Route><NotFound/></Route>
       </Switch>
@@ -413,11 +371,11 @@ function ClerkRoutes() {
     </QueryClientProvider>
   </ClerkProvider>;
 }
-function NotFound() { return <div className="not-found"><Mark/><span className="eyebrow">404 · Wrong turn</span><h1 className="font-display">This offer isn’t here.</h1><p>Let’s get you back to the good stuff.</p><Link href="/" className="btn btn-primary">Back to helpay <ArrowRight size={16}/></Link></div>; }
+function NotFound() { return <div className="not-found"><Mark/><span className="eyebrow">404 · Wrong turn</span><h1 className="font-display">This offer isn’t here.</h1><p>Let’s get you back to the good stuff.</p><Link href="/" className="btn btn-primary">Back to OfferPay <ArrowRight size={16}/></Link></div>; }
 
 function App() {
-  if (!clerkPubKey) {
-    return <div className="config-state"><Mark/><h1>Getting helpay ready.</h1><p>Authentication is being configured. Please try again shortly.</p></div>;
+  if (!isSupabaseConfigured) {
+    return <div className="config-state"><Mark/><h1>Getting OfferPay ready.</h1><p>Authentication is being configured. Please try again shortly.</p></div>;
   }
   return <WouterRouter base={basePath}><ClerkRoutes/></WouterRouter>;
 }
