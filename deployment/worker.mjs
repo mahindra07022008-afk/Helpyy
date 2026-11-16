@@ -1,6 +1,9 @@
 import {APPROVED_BRANDS, PRICING} from './catalog.mjs';
 const json=(value,status=200)=>Response.json(value,{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff'}});
 const listing=c=>({id:c.id,brand:c.brand,category:c.category,title:c.title,discountPercent:c.discount_percent,couponValue:c.coupon_value,expiryDate:c.expiry_date,salePrice:c.sale_price,commission:c.commission,sellerEarnings:c.seller_earnings,status:c.status});
+export function searchTerm(value){
+ return (typeof value==='string'?value:'').normalize('NFKC').replace(/[^\p{L}\p{N} &'.-]/gu,' ').replace(/\s+/g,' ').trim().slice(0,80);
+}
 export function validateCoupon(p){
  if(!p||typeof p!=='object'||!APPROVED_BRANDS.some(b=>b.name===p.brand)) return 'Choose an approved brand.';
  if(typeof p.title!=='string'||p.title.trim().length<3||p.title.length>160||typeof p.code!=='string'||!p.code.trim()||p.code.length>200) return 'Enter a title (3–160 characters) and a code (1–200 characters).';
@@ -22,7 +25,7 @@ async function api(request,env){
  const token=request.headers.get('authorization');
  const headers={apikey:env.SUPABASE_PUBLISHABLE_KEY,'Content-Type':'application/json',...(token?{Authorization:token}:{})};
  async function rest(resource,options={}){
-  const res=await fetch(`${env.SUPABASE_URL}/rest/v1/${resource}`,{...options,headers,signal:AbortSignal.timeout(10000)});
+  const res=await fetch(`${env.SUPABASE_URL}/rest/v1/${resource}`,{...options,headers:options.headers??headers,signal:AbortSignal.timeout(10000)});
   if(!res.ok) throw new Error(`Database request failed: ${res.status}`);
   return res.json();
  }
@@ -31,10 +34,11 @@ async function api(request,env){
  if(method==='GET'&&path==='/api/coupons'){
   const q=new URLSearchParams({select:columns,status:'eq.available',expiry_date:`gte.${new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata'}).format(new Date())}`,order:'created_at.desc',limit:'100'});
   if(url.searchParams.get('brand'))q.set('brand',`eq.${url.searchParams.get('brand')}`);
-  const search=url.searchParams.get('search')?.trim().slice(0,80);
-  // Filter bounded results locally to avoid injecting PostgREST filter syntax.
-  let rows=await rest(`helpyy_coupons?${q}`);
-  if(search)rows=rows.filter(c=>(c.title+' '+c.brand).toLowerCase().includes(search.toLowerCase()));
+  // Search runs in the database. Only letters, digits, spaces and a few brand
+  // punctuation marks survive, so no PostgREST filter syntax can be injected.
+  const search=searchTerm(url.searchParams.get('search'));
+  if(search)q.set('or',`(title.ilike."*${search}*",brand.ilike."*${search}*")`);
+  const rows=await rest(`helpyy_coupons?${q}`);
   return json(rows.map(listing));
  }
  if(!token?.startsWith('Bearer '))return json({error:'Sign in to continue.'},401);
@@ -54,6 +58,13 @@ async function api(request,env){
   const rows=await rest(`helpyy_coupons?select=${columns}&seller_id=eq.${user.id}&order=created_at.desc&limit=100`);
   const codes=await rest(`helpyy_coupon_codes?select=coupon_id,code&seller_id=eq.${user.id}&limit=100`);
   return json(rows.map(c=>({...listing(c),code:codes.find(x=>x.coupon_id===c.id)?.code??'',paymentStatus:null})));
+ }
+ const withdraw=method==='POST'&&path.match(/^\/api\/seller\/coupons\/(\d{1,15})\/withdraw$/);
+ if(withdraw){
+  // RLS limits the update to the caller's own rows; the seller filter is defence in depth.
+  const rows=await rest(`helpyy_coupons?id=eq.${withdraw[1]}&seller_id=eq.${user.id}&status=eq.available&select=${columns}`,{method:'PATCH',headers:{...headers,Prefer:'return=representation'},body:JSON.stringify({status:'withdrawn'})});
+  if(!rows.length)return json({error:'Listing not found, or already withdrawn.'},404);
+  return json(listing(rows[0]));
  }
  // No payment ledger exists in this new, payment-disabled deployment.
  if(method==='GET'&&path==='/api/seller/summary')return json({totalEarned:0,availableToClaim:0,pendingPayments:0,couponsSold:0});

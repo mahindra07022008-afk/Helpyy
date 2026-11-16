@@ -38,3 +38,14 @@ Live URL: https://helpyy.mahindra07022008.workers.dev/
 - Backup branch: `backup/pre-production-2026-11-15`.
 
 Payments, bank linking, UPI activation and custom domain setup remain deliberately excluded. This is a deployed application with remaining launch checks, not a claim that all production-readiness checks are complete.
+
+## Update — 16 November 2026 (source only; not yet deployed)
+
+Added: password reset (`/reset-password`, linked from sign-in), seller withdraw of own listings (migration 002 + `POST /api/seller/coupons/:id/withdraw`), sellers can see their own codes, database-side search, server validation messages on the listing form, IST-correct minimum expiry date.
+
+Checked locally, against a stand-in for Supabase (not the real database or the live site):
+
+- Production build, typecheck, and 7 Worker tests.
+- 34 browser checks on the built site, desktop and Pixel 7 viewport: home, sign-up, wrong-password error, sign-in, sign-out, session after refresh, protected-route redirects, listing creation and persistence, search, brand filter, empty state, payments-disabled checkout, second account cannot see or withdraw the first account's listings or codes, admin endpoints 401/403, owner withdraw, password change, reset request, 404 and pricing pages, no horizontal overflow on mobile, no uncaught browser errors.
+
+Not verified: everything above on the live URL; migration 002 and its RLS policy on the real database; the PostgREST search filter against real Supabase; real reset and confirmation emails.

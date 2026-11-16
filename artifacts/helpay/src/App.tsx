@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
-import { ClerkProvider, SignIn, SignUp, useAuth, useClerk, useUser } from './lib/auth';
+import { ClerkProvider, ResetPassword, SignIn, SignUp, apiPost, useAuth, useClerk, useUser } from './lib/auth';
 import {
   useCreateCoupon, useCreatePayoutRequest, useCreatePurchase, useGetBrands,
   useGetCouponPricing, useGetCoupons, useGetSellerCoupons, useGetSellerSummary,
@@ -76,7 +76,7 @@ function Footer() {
 function BottomNav() {
   const { isSignedIn } = useAuth();
   const [location] = useLocation();
-  if (location.startsWith('/sign-in') || location.startsWith('/sign-up')) return null;
+  if (location.startsWith('/sign-in') || location.startsWith('/sign-up') || location.startsWith('/reset-password')) return null;
   const items = [
     { href: '/pricing', label: 'Pricing', icon: <Banknote size={19}/> },
     { href: isSignedIn ? '/upload' : '/sign-in', label: 'Upload', icon: <Tag size={19}/> },
@@ -251,9 +251,9 @@ function UploadPage() {
           <div><label className="label" htmlFor="coupon-title">Offer title</label><input id="coupon-title" className="field" minLength={3} maxLength={100} required value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. 30% off your next order" data-testid="input-coupon-title"/></div>
           <div className="two-fields"><div><label className="label" htmlFor="coupon-kind">Offer type</label><select className="field" id="coupon-kind" value={category} onChange={e => setCategory(e.target.value as 'discount'|'worth')} data-testid="select-coupon-category"><option value="discount">Percentage discount</option><option value="worth">Coupon value</option></select></div><div><label className="label" htmlFor="coupon-value">{category === 'discount' ? 'Discount (%)' : 'Coupon worth (₹)'}</label><input id="coupon-value" type="number" className="field" value={value} min={category === 'discount' ? 10 : 0} max={category === 'discount' ? 100 : 1000} onChange={e => setValue(e.target.value)} required placeholder={category === 'discount' ? '10–100' : '0–1000'} data-testid="input-coupon-value"/></div></div>
           <div><label className="label" htmlFor="coupon-code">Coupon code</label><input id="coupon-code" className="field" value={code} onChange={e => setCode(e.target.value)} minLength={3} maxLength={120} required placeholder="Enter the code exactly as shown" data-testid="input-coupon-code"/><small className="form-help">Your code stays private and is never shown on public listings.</small></div>
-          <div><label className="label" htmlFor="coupon-expiry">Expiry date</label><input id="coupon-expiry" type="date" className="field" value={expiryDate} min={new Date().toISOString().slice(0,10)} onChange={e => setExpiryDate(e.target.value)} required data-testid="input-coupon-expiry"/></div>
+          <div><label className="label" htmlFor="coupon-expiry">Expiry date</label><input id="coupon-expiry" type="date" className="field" value={expiryDate} min={new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date())} onChange={e => setExpiryDate(e.target.value)} required data-testid="input-coupon-expiry"/></div>
           <div className="earnings-preview"><div><small>Listed at</small><strong>{matchedRule ? money(matchedRule.salePrice) : '—'}</strong></div><span className="preview-divider"/><div><small>Your earnings</small><strong>{matchedRule ? money(matchedRule.sellerEarnings) : '—'}</strong></div>{!matchedRule && <span className="preview-footnote">Select a value to see fixed pricing</span>}</div>
-          {createCoupon.isError && <p className="form-error">Couldn’t submit this coupon. Check the details and try again.</p>}
+          {createCoupon.isError && <p className="form-error" role="alert">{(createCoupon.error as { data?: { error?: string } } | null)?.data?.error ?? 'Couldn’t submit this coupon. Check the details and try again.'}</p>}
            <button className="btn btn-primary full-width" type="submit" disabled={createCoupon.isPending || brands.isLoading || !matchedRule || !brand || !expiryDate} data-testid="button-submit-coupon">{createCoupon.isPending ? 'Submitting…' : <>Submit coupon <ArrowRight size={16}/></>}</button>
         </form></>}
     </section></div>
@@ -270,6 +270,17 @@ function SellerPage() {
   const [payoutRequested, setPayoutRequested] = useState(false);
   const [payoutResponse, setPayoutResponse] = useState<PayoutRequest | null>(null);
   const [upiId, setUpiId] = useState('');
+  const [withdrawing, setWithdrawing] = useState<number | null>(null);
+  const [withdrawError, setWithdrawError] = useState('');
+  const withdrawCoupon = async (c: { id: number; brand: string; title: string }) => {
+    if (!window.confirm(`Withdraw “${c.title}” (${c.brand}) from the marketplace? Buyers will no longer see it. This can’t be undone.`)) return;
+    setWithdrawing(c.id); setWithdrawError('');
+    try {
+      await apiPost(`/api/seller/coupons/${c.id}/withdraw`);
+      await Promise.all([qc.invalidateQueries({ queryKey: getGetSellerCouponsQueryKey() }), qc.invalidateQueries({ queryKey: getGetCouponsQueryKey() })]);
+    } catch (err) { setWithdrawError(err instanceof Error ? err.message : 'Couldn’t withdraw this listing. Please try again.'); }
+    finally { setWithdrawing(null); }
+  };
   const recentSales = (transactions.data ?? []).filter(t => t.direction === 'sale');
   const handlePayout = () => payout.mutate({ data: { upiId: upiId.trim() } }, { onSuccess: async (request) => {
     await Promise.all([qc.invalidateQueries({ queryKey: getGetSellerSummaryQueryKey() }), qc.invalidateQueries({ queryKey: getGetTransactionsQueryKey() }), qc.invalidateQueries({ queryKey: getGetPayoutRequestsQueryKey() })]);
@@ -291,7 +302,8 @@ function SellerPage() {
       {payoutResponse && <div className="inline-success" data-testid="status-payout-request"><Check size={16}/> Request #{payoutResponse.id} for {money(payoutResponse.amount)} received · {statusLabel[payoutResponse.status] ?? payoutResponse.status}</div>}
        {payoutRequests.data && payoutRequests.data.length > 0 && <section className="dashboard-section payout-history"><div className="section-title-row"><div><span className="eyebrow">Payout activity</span><h2>Your payout requests</h2></div></div><div className="listing-list">{payoutRequests.data.map(request => <div className="listing-row" key={request.id}><div className="listing-main"><strong>Request #{request.id}</strong><span>{dateLabel(request.createdAt)}</span></div><div className="listing-value"><strong>{money(request.amount)}</strong><small>requested</small></div><span className={`status-pill status-${request.status}`}>{statusLabel[request.status] ?? request.status}</span></div>)}</div></section>}
        <section className="dashboard-section"><div className="section-title-row"><div><span className="eyebrow">Your listings</span><h2>Coupons you’ve shared</h2></div><span className="section-count">{coupons.data?.length ?? 0} listed</span></div>
-         {coupons.isLoading ? <div className="listing-row skeleton-card"/> : coupons.isError ? <div className="state-card"><p>Couldn’t load your coupons.</p><button className="text-link" onClick={() => void coupons.refetch()}>Try again</button></div> : coupons.data?.length ? <div className="listing-list">{coupons.data.map(c => <div className="listing-row" key={c.id} data-testid={`row-seller-coupon-${c.id}`}><div className="brand-avatar small">{c.brand.slice(0,1)}</div><div className="listing-main"><strong>{c.brand}</strong><span>{c.title}</span></div><div className="listing-value"><strong>{money(c.sellerEarnings)}</strong><small>your share</small></div><span className={`status-pill ${c.status === 'available' ? 'status-good' : 'status-pending'}`}>{c.status === 'available' ? 'Listed' : c.status === 'reserved' ? 'Payment review pending' : c.status}</span></div>)}</div> : <div className="empty-state compact-empty"><div className="empty-icon"><TicketCheck size={22}/></div><h3>Your first listing starts here.</h3><p>Share a coupon you won’t use and put it to good use for someone else.</p><Link href="/upload" className="btn btn-primary">Share a coupon</Link></div>}
+         {withdrawError && <p className="form-error" role="alert">{withdrawError}</p>}
+         {coupons.isLoading ? <div className="listing-row skeleton-card"/> : coupons.isError ? <div className="state-card"><p>Couldn’t load your coupons.</p><button className="text-link" onClick={() => void coupons.refetch()}>Try again</button></div> : coupons.data?.length ? <div className="listing-list">{coupons.data.map(c => <div className="listing-row" key={c.id} data-testid={`row-seller-coupon-${c.id}`}><div className="brand-avatar small">{c.brand.slice(0,1)}</div><div className="listing-main"><strong>{c.brand}</strong><span>{c.title}</span>{c.code && <span>Your code: <code className="coupon-code">{c.code}</code></span>}</div><div className="listing-value"><strong>{money(c.sellerEarnings)}</strong><small>your share</small></div><span className={`status-pill ${c.status === 'available' ? 'status-good' : 'status-pending'}`}>{c.status === 'available' ? 'Listed' : c.status === 'reserved' ? 'Payment review pending' : c.status === 'withdrawn' ? 'Withdrawn' : c.status}</span>{c.status === 'available' && <button className="text-link" onClick={() => void withdrawCoupon(c)} disabled={withdrawing === c.id} data-testid={`button-withdraw-${c.id}`}>{withdrawing === c.id ? 'Withdrawing…' : 'Withdraw'}</button>}</div>)}</div> : <div className="empty-state compact-empty"><div className="empty-icon"><TicketCheck size={22}/></div><h3>Your first listing starts here.</h3><p>Share a coupon you won’t use and put it to good use for someone else.</p><Link href="/upload" className="btn btn-primary">Share a coupon</Link></div>}
       </section>
       <section className="dashboard-section"><div className="section-title-row"><div><span className="eyebrow">Latest activity</span><h2>Your sales</h2></div><Link href="/profile" className="text-link">All transactions <ArrowRight size={14}/></Link></div>{recentSales.length ? <TransactionTable transactions={recentSales.slice(0,5)}/> : <div className="empty-state compact-empty"><p>No sales to show yet. Once a buyer’s payment is verified, the sale will appear here.</p></div>}</section>
     </main><Footer/></div></Protected>
@@ -381,6 +393,9 @@ function SignInPage() {
 function SignUpPage() {
   return <div className="auth-layout"><div className="auth-brand"><Mark/><span>Coupons, passed on fairly.</span></div><div className="auth-form"><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`}/></div><aside className="auth-aside"><div className="auth-aside-content"><span className="eyebrow">Make good offers count</span><h1 className="font-display">Share a little savings.</h1><p>List coupons you won’t use, see your exact earnings upfront, and let another shopper make the most of them.</p><div className="auth-quote"><HandCoins size={19}/><span>Fixed tiers. Clear earnings. No surprises.</span></div></div><span className="auth-aside-foot">GOOD OFFERS FIND GOOD HOMES.</span></aside></div>;
 }
+function ResetPasswordPage() {
+  return <div className="auth-layout"><div className="auth-brand"><Mark/><span>Coupons, passed on fairly.</span></div><div className="auth-form"><ResetPassword/></div><aside className="auth-aside"><div className="auth-aside-content"><span className="eyebrow">Back in a moment</span><h1 className="font-display">Let’s get you signed in again.</h1><p>We’ll email you a secure link. It works once and expires soon after it’s sent.</p><div className="auth-quote"><ShieldCheck size={19}/><span>Clear prices. Private codes. Payments currently disabled.</span></div></div><span className="auth-aside-foot">GOOD OFFERS FIND GOOD HOMES.</span></aside></div>;
+}
 function ClerkQueryCacheInvalidator() {
   const { addListener } = useClerk();
   const qc = useQueryClient();
@@ -401,6 +416,7 @@ function ClerkRoutes() {
         <Route path="/" component={HomeRedirect}/>
         <Route path="/sign-in/*?" component={SignInPage}/>
         <Route path="/sign-up/*?" component={SignUpPage}/>
+        <Route path="/reset-password" component={ResetPasswordPage}/>
         <Route path="/dashboard"><Protected><Marketplace/></Protected></Route>
         <Route path="/upload" component={UploadPage}/>
         <Route path="/seller" component={SellerPage}/>

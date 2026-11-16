@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker,{validateCoupon} from '../deployment/worker.mjs';
+import worker,{validateCoupon,searchTerm} from '../deployment/worker.mjs';
 const env={SUPABASE_URL:'https://example.supabase.co',SUPABASE_PUBLISHABLE_KEY:'test'};
 test('payment writes are denied before auth or database access',async()=>{
  for(const path of ['/api/purchases','/api/payout-requests','/api/admin/purchases/1','/api/admin/payout-requests/1']){
@@ -18,4 +18,38 @@ test('reject forged prices, invalid dates and malformed coupon input',()=>{
 });
 test('public catalog and pricing are available and carry security headers',async()=>{
  const res=await worker.fetch(new Request('https://test/api/pricing'),env);assert.equal(res.status,200);assert.equal((await res.json()).length,5);assert.equal(res.headers.get('X-Frame-Options'),'DENY');
+});
+test('search terms cannot carry PostgREST filter syntax',()=>{
+ assert.equal(searchTerm('  Domino\'s  pizza '),"Domino's pizza");
+ assert.equal(searchTerm('x",id.gt.0),or=(a*%_\\'),'x id.gt.0 or a');
+ assert.equal(searchTerm(null),'');assert.equal(searchTerm('a'.repeat(200)).length,80);
+});
+// Stand-in for Supabase: records what the Worker asks the database to do.
+async function withSupabase(handler,run){
+ const real=globalThis.fetch,calls=[];
+ globalThis.fetch=async(url,init={})=>{calls.push({url:String(url),init});return handler(String(url),init);};
+ try{await run(calls);}finally{globalThis.fetch=real;}
+}
+const row={id:7,brand:'Amazon',category:'discount',title:'Test',discount_percent:20,coupon_value:null,expiry_date:'2099-12-31',sale_price:10,commission:7,seller_earnings:3,status:'withdrawn'};
+test('search is pushed to the database as a quoted ilike filter',async()=>{
+ await withSupabase(()=>Response.json([]),async calls=>{
+  const res=await worker.fetch(new Request('https://test/api/coupons?search='+encodeURIComponent('piz"za)')+'&brand=KFC'),env);
+  assert.equal(res.status,200);
+  const q=new URL(calls[0].url).searchParams;
+  assert.equal(q.get('or'),'(title.ilike."*piz za*",brand.ilike."*piz za*")');assert.equal(q.get('brand'),'eq.KFC');assert.equal(q.get('status'),'eq.available');
+ });
+});
+test('withdraw is scoped to the signed-in seller and 404s for other rows',async()=>{
+ for(const [rows,status] of [[[row],200],[[],404]]){
+  await withSupabase(url=>url.includes('/auth/v1/user')?Response.json({id:'user-1'}):Response.json(rows),async calls=>{
+   const res=await worker.fetch(new Request('https://test/api/seller/coupons/7/withdraw',{method:'POST',headers:{authorization:'Bearer t'}}),env);
+   assert.equal(res.status,status);
+   const patch=calls.find(c=>c.init.method==='PATCH');
+   assert.match(patch.url,/id=eq\.7&seller_id=eq\.user-1&status=eq\.available/);assert.equal(patch.init.body,'{"status":"withdrawn"}');assert.equal(patch.init.headers.Authorization,'Bearer t');
+  });
+ }
+ assert.equal((await worker.fetch(new Request('https://test/api/seller/coupons/7/withdraw',{method:'POST'}),env)).status,401);
+ await withSupabase(()=>new Response('{}',{status:401}),async()=>{
+  assert.equal((await worker.fetch(new Request('https://test/api/seller/coupons/7/withdraw',{method:'POST',headers:{authorization:'Bearer bad'}}),env)).status,401);
+ });
 });
