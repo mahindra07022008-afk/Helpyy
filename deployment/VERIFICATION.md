@@ -39,7 +39,7 @@ Live URL: https://helpyy.mahindra07022008.workers.dev/
 
 Payments, bank linking, UPI activation and custom domain setup remain deliberately excluded. This is a deployed application with remaining launch checks, not a claim that all production-readiness checks are complete.
 
-## Update — 16 November 2026 (source only; not yet deployed)
+## Update — 16 November 2026
 
 Added: password reset (`/reset-password`, linked from sign-in), seller withdraw of own listings (migration 002 + `POST /api/seller/coupons/:id/withdraw`), sellers can see their own codes, database-side search, server validation messages on the listing form, IST-correct minimum expiry date.
 
@@ -49,3 +49,9 @@ Checked locally, against a stand-in for Supabase (not the real database or the l
 - 34 browser checks on the built site, desktop and Pixel 7 viewport: home, sign-up, wrong-password error, sign-in, sign-out, session after refresh, protected-route redirects, listing creation and persistence, search, brand filter, empty state, payments-disabled checkout, second account cannot see or withdraw the first account's listings or codes, admin endpoints 401/403, owner withdraw, password change, reset request, 404 and pricing pages, no horizontal overflow on mobile, no uncaught browser errors.
 
 Not verified: everything above on the live URL; migration 002 and its RLS policy on the real database; the PostgREST search filter against real Supabase; real reset and confirmation emails.
+
+Deployed the same day (Worker deployment `d8b9d5ea952d414292f136336a8eee39`, inline-assets mode; previous version `c4fda940-e17a-4aa6-9d9d-ba8f670d5455` is the rollback target).
+
+Checked on the live URL: home, deep links, `/api/healthz` (database connected), `/api/coupons` including a search with hostile characters against the real database, pricing, security headers, Brotli compression; in a browser at desktop and Pixel 7 sizes: home renders without horizontal overflow, `/seller` and `/admin` redirect to sign-in when signed out, forgot-password link opens the reset form, no console errors.
+
+Still not verified live: sign-up, sign-in, sign-out, listing creation, ownership checks and withdraw with real accounts (the test environment could not reach the Supabase project host); reset and confirmation emails. Migration 002 is **not yet applied**, so Withdraw returns an error on the live site until it is.

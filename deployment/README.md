@@ -15,6 +15,8 @@ Use Node 24 and the pinned pnpm version from package.json.
 5. Set deployment-only environment variables from `.env.example`, plus `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`.
 6. `node deployment/deploy.mjs`
 
+If the asset-upload step returns 401 because a proxy or CI system rewrites the `Authorization` header, run `INLINE_ASSETS=1 node deployment/deploy.mjs` instead. It bundles the built site into the Worker and deploys in a single API call; the site behaves the same. The current production deployment was made this way.
+
 Do not use the root generic build command for Cloudflare: it also builds unrelated original workspace artifacts. The deployed application uses `build:production`.
 
 Database migrations live in `deployment/migrations/` and are applied in order with the Supabase SQL editor (or the Management API). `001_initial_schema.sql` is already applied to helpay-v2; do not reapply it. `002_withdraw_listing.sql` (seller can withdraw their own listing) is additive, idempotent, and must be applied **before** deploying a Worker that includes the withdraw endpoint; until it is, Withdraw returns an error and nothing else is affected. Its rollback statements are at the bottom of the file. Existing tables and data were not replaced. Coupon codes are in a separate RLS-protected table; public listings never include codes. Prices are enforced in the database. New payments, payouts, and payment approvals are always denied. Zero dashboard earnings reflect the absence of a payment ledger in this deployment; no transactions are simulated or migrated.
