@@ -75,8 +75,8 @@ function AuthForm({signup=false}:{signup?:boolean}) {
     try {
       const {data,error}=signup?await supabase.auth.signUp({email,password,options:{emailRedirectTo:appUrl('/dashboard')}}):await supabase.auth.signInWithPassword({email,password});
       if(error) setMessage(error.message);
-      else if(data.session) window.location.assign(appUrl('/dashboard'));
-      else setMessage('Check your email to confirm your account, then return here to sign in.');
+      // With a session, the effect above moves on to the dashboard.
+      else if(!data.session) setMessage('Check your email to confirm your account, then return here to sign in.');
     }catch{setMessage('Unable to connect. Please try again.');}finally{setBusy(false);}
   }
   return <form onSubmit={submit} className="auth-card" style={cardStyle}>

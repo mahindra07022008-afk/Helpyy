@@ -65,3 +65,15 @@ Live Worker deployment `057929e19beb4e00881af33dabb9370d` with `UPI_ID` set. Mig
 - Live URL: config reports payments on, payment and reviewer endpoints return 401 when signed out, QR image served, pages render without console errors.
 
 Not verified: a real UPI payment end to end on the live site with real accounts; reviewer sign-in (the owner account's email is not yet confirmed).
+
+## Update 3 — 16 November 2026: sign-in providers, offer pages, sorting
+
+Live Worker deployment `6dd6a4495c7240089746a16bd945caa5`. Migration 002 is now applied (without its `drop policy if exists` line, which was unnecessary on this database).
+
+Added: Google and Facebook buttons (shown only when the provider is enabled in Supabase), an offer page at `/offer/:id` with a share button, sort (newest, price, expiring soonest) and offer-type filter, an "Expires in N days" note on offers within a week of expiry, real page title and description.
+
+- Withdraw on the real database, rolled back: another user's update touches 0 rows; the owner cannot set any other status or change the price; owner withdraw works once.
+- 10 Worker tests; 64 browser checks across four local suites (stand-in database), desktop and Pixel 7. Found and fixed along the way: the purchase confirmation disappeared when buying from an offer page, and sign-in triggered two navigations.
+- Live URL: sort, type filter and search requests return 200 from the real database; missing offers return 404 and a friendly page; pages render at both sizes with no page errors.
+
+Still not verified live: any flow that needs a signed-in real account (sign-up, listing, purchase, review, payout, withdraw through the UI), Google/Facebook sign-in, and email delivery.

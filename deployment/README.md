@@ -19,7 +19,7 @@ If the asset-upload step returns 401 because a proxy or CI system rewrites the `
 
 Do not use the root generic build command for Cloudflare: it also builds unrelated original workspace artifacts. The deployed application uses `build:production`.
 
-Database migrations live in `deployment/migrations/` and are applied in order with the Supabase SQL editor (or the Management API). `001_initial_schema.sql` is already applied to helpay-v2; do not reapply it. `002_withdraw_listing.sql` (seller can withdraw their own listing) is additive, idempotent, and must be applied **before** deploying a Worker that includes the withdraw endpoint; until it is, Withdraw returns an error and nothing else is affected. Its rollback statements are at the bottom of the file. Existing tables and data were not replaced. Coupon codes are in a separate RLS-protected table; public listings never include codes. Prices are enforced in the database.
+Database migrations live in `deployment/migrations/` and are applied in order with the Supabase SQL editor (or the Management API). `001_initial_schema.sql` is already applied to helpay-v2; do not reapply it. `002_withdraw_listing.sql` (seller can withdraw their own listing) and `003_upi_payments.sql` (manual UPI payments) are applied too. Each file lists its own rollback statements. Existing tables and data were not replaced. Coupon codes are in a separate RLS-protected table; public listings never include codes. Prices are enforced in the database.
 
 ## Payments (manual UPI, no gateway)
 

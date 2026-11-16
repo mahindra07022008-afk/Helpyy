@@ -74,3 +74,15 @@ test('purchase input is validated, normalised, and database refusals are passed 
   const refused=await post('/api/payout-requests',{upiId:'me@bank'});assert.equal(refused.status,409);assert.equal((await refused.json()).error,'There are no earnings to claim yet.');
  });
 });
+test('sort and type filters map to fixed database options; single offers hide unavailable rows',async()=>{
+ await withSupabase(url=>Response.json(url.includes('id=eq.7')?[row]:[]),async calls=>{
+  await worker.fetch(new Request('https://test/api/coupons?sort=price_asc&category=worth'),env);
+  let q=new URL(calls.at(-1).url).searchParams;assert.equal(q.get('order'),'sale_price.asc,created_at.desc');assert.equal(q.get('category'),'eq.worth');
+  await worker.fetch(new Request('https://test/api/coupons?sort=created_at.desc,id&category=x'),env);
+  q=new URL(calls.at(-1).url).searchParams;assert.equal(q.get('order'),'created_at.desc');assert.equal(q.get('category'),null);
+  const found=await worker.fetch(new Request('https://test/api/coupons/7'),env);assert.equal(found.status,200);assert.equal('code' in await found.json(),false);
+  assert.equal(new URL(calls.at(-1).url).searchParams.get('status'),'eq.available');
+  assert.equal((await worker.fetch(new Request('https://test/api/coupons/8'),env)).status,404);
+  assert.equal((await worker.fetch(new Request('https://test/api/coupons/abc'),env)).status,401);
+ });
+});

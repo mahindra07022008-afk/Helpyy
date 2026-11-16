@@ -51,12 +51,20 @@ async function api(request,env){
  if(method==='GET'&&path==='/api/coupons'){
   const q=new URLSearchParams({select:columns,status:'eq.available',expiry_date:`gte.${new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata'}).format(new Date())}`,order:'created_at.desc',limit:'100'});
   if(url.searchParams.get('brand'))q.set('brand',`eq.${url.searchParams.get('brand')}`);
+  if(['discount','worth'].includes(url.searchParams.get('category')))q.set('category',`eq.${url.searchParams.get('category')}`);
+  q.set('order',{price_asc:'sale_price.asc,created_at.desc',price_desc:'sale_price.desc,created_at.desc',expiring:'expiry_date.asc,created_at.desc'}[url.searchParams.get('sort')]??'created_at.desc');
   // Search runs in the database. Only letters, digits, spaces and a few brand
   // punctuation marks survive, so no PostgREST filter syntax can be injected.
   const search=searchTerm(url.searchParams.get('search'));
   if(search)q.set('or',`(title.ilike."*${search}*",brand.ilike."*${search}*")`);
   const rows=await rest(`helpyy_coupons?${q}`);
   return json(rows.map(listing));
+ }
+ const single=method==='GET'&&path.match(/^\/api\/coupons\/(\d{1,15})$/);
+ if(single){
+  // Same visibility as the list: available and unexpired only. Never includes the code.
+  const rows=await rest(`helpyy_coupons?${new URLSearchParams({select:columns,id:`eq.${single[1]}`,status:'eq.available',expiry_date:`gte.${new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata'}).format(new Date())}`})}`);
+  return rows.length?json(listing(rows[0])):json({error:'This offer is no longer available.'},404);
  }
  if(!token?.startsWith('Bearer '))return json({error:'Sign in to continue.'},401);
  const auth=await fetch(`${env.SUPABASE_URL}/auth/v1/user`,{headers,signal:AbortSignal.timeout(10000)});
